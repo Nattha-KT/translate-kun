@@ -85,12 +85,12 @@ impl fmt::Display for Finding {
 pub enum SecretGuardError {
     /// An extra pattern is not a valid regular expression.
     /// `index` is its position in the `extra` list (0-based).
-    #[error("extra Secret Guard pattern #{index} is not a valid regex: {source}")]
-    InvalidPattern {
-        index: usize,
-        #[source]
-        source: regex::Error,
-    },
+    ///
+    /// Deliberately holds no pattern text and no `regex::Error` (whose
+    /// message quotes the pattern): a user may have pasted a real key as a
+    /// pattern, and this error may be printed.
+    #[error("extra secret pattern #{index} is not a valid regex")]
+    InvalidPattern { index: usize },
 }
 
 /// The built-in, high-precision patterns. They are always active: there is
@@ -98,35 +98,65 @@ pub enum SecretGuardError {
 ///
 /// The `regex` crate runs in linear time, so even a hostile extra pattern
 /// cannot make a scan hang.
+///
+/// `(?-u:\b)` is an ASCII-only word boundary. A plain `\b` is Unicode-aware
+/// and treats Thai letters as word characters, so a key written straight
+/// after a Thai word (Thai has no spaces) would be missed.
 const BUILT_IN: &[(SecretKind, &str)] = &[
-    (SecretKind::AwsAccessKey, r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+    (
+        SecretKind::AwsAccessKey,
+        r"(?-u:\b)(?:AKIA|ASIA)[A-Z0-9]{16}(?-u:\b)",
+    ),
     (
         SecretKind::GitHubToken,
-        r"\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})\b",
+        r"(?-u:\b)(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})(?-u:\b)",
     ),
-    (SecretKind::AnthropicApiKey, r"\bsk-ant-[A-Za-z0-9_\-]{20,}"),
+    (
+        SecretKind::AnthropicApiKey,
+        r"(?-u:\b)sk-ant-[A-Za-z0-9_\-]{20,}",
+    ),
+    // OpenAI legacy keys: `sk-` + 40 or more letters/digits only. No `-` or
+    // `_`, so long kebab-case names such as `sk-my-resource-name` are ignored.
+    // Neither OpenAI pattern can match an Anthropic `sk-ant-…` key (the `-`
+    // after `ant` breaks the run), so those are reported once, as Anthropic.
+    (SecretKind::OpenAiApiKey, r"(?-u:\b)sk-[A-Za-z0-9]{40,}"),
+    // OpenAI prefixed keys may contain `-` and `_`.
     (
         SecretKind::OpenAiApiKey,
-        r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}",
+        r"(?-u:\b)sk-(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{32,}",
     ),
-    (SecretKind::GoogleApiKey, r"\bAIza[A-Za-z0-9_\-]{35}"),
-    (SecretKind::SlackToken, r"\bxox[abprs]-[A-Za-z0-9\-]{10,}"),
-    // The whole block up to its END line or, if the block is cut off, up to
-    // the end of the text. `(?s)` lets `.` match newlines.
+    (SecretKind::GoogleApiKey, r"(?-u:\b)AIza[A-Za-z0-9_\-]{35}"),
+    (
+        SecretKind::SlackToken,
+        r"(?-u:\b)xox[abprs]-[A-Za-z0-9\-]{10,}",
+    ),
+    // A PEM private key. A line break is a real newline or the two
+    // characters `\n` (keys escaped inside JSON). Two shapes, tried in order:
+    // 1. A whole block: BEGIN, lines of base64 (or `Name: value` headers, or
+    //    blank), then END.
+    // 2. A cut-off block: BEGIN followed by at least one base64 line of 20+
+    //    characters; the match ends after the last such line.
+    // A BEGIN header with no body (e.g. in documentation) is not a finding.
     (
         SecretKind::PrivateKeyBlock,
-        r"(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:.*?-----END [A-Z0-9 ]*PRIVATE KEY-----|.*)",
+        concat!(
+            r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----",
+            r"(?:",
+            r"(?:(?:\r?\n|\\n)[ \t]*(?:[A-Za-z0-9+/=]*|[A-Za-z-]+:[^\r\n\\]*)[ \t]*)*",
+            r"(?:\r?\n|\\n)[ \t]*-----END [A-Z0-9 ]*PRIVATE KEY-----",
+            r"|",
+            r"(?:(?:\r?\n|\\n)[ \t]*[A-Za-z0-9+/=]{20,})+",
+            r")",
+        ),
     ),
     // Three base64url segments; the header always starts `eyJ` (`{"`).
+    // The payload may be as short as `e30` (`{}`, empty claims). Real
+    // signatures are 43+ characters, so 16 is a safe minimum.
     (
         SecretKind::Jwt,
-        r"\beyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}",
+        r"(?-u:\b)eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{2,}\.[A-Za-z0-9_\-]{16,}",
     ),
 ];
-
-/// Anthropic keys also start with `sk-`, so the OpenAI pattern matches them
-/// too. They are reported once, as Anthropic.
-const ANTHROPIC_PREFIX: &str = "sk-ant-";
 
 struct Pattern {
     kind: SecretKind,
@@ -151,8 +181,8 @@ impl SecretGuard {
             patterns.push(Pattern { kind: *kind, regex });
         }
         for (index, source) in extra.iter().enumerate() {
-            let regex = Regex::new(source)
-                .map_err(|source| SecretGuardError::InvalidPattern { index, source })?;
+            let regex =
+                Regex::new(source).map_err(|_| SecretGuardError::InvalidPattern { index })?;
             patterns.push(Pattern {
                 kind: SecretKind::Custom,
                 regex,
@@ -169,10 +199,6 @@ impl SecretGuard {
             for m in pattern.regex.find_iter(text) {
                 // An empty match hides nothing, so it is not a finding.
                 if m.is_empty() {
-                    continue;
-                }
-                let is_anthropic_key = m.as_str().starts_with(ANTHROPIC_PREFIX);
-                if pattern.kind == SecretKind::OpenAiApiKey && is_anthropic_key {
                     continue;
                 }
                 findings.push(Finding {

@@ -132,14 +132,56 @@ fn detects_whole_pem_private_key_block() {
 }
 
 #[test]
-fn truncated_pem_block_is_detected_up_to_end_of_text() {
-    let text = format!("{}{}", "-----BEGIN RSA PRIVATE KEY-----\n", "FAKEEXAMPLE");
+fn truncated_pem_block_ends_after_its_last_base64_line() {
+    let block = format!(
+        "{}{}{}",
+        "-----BEGIN RSA PRIVATE KEY-----\n",
+        "FAKEEXAMPLEFAKEEXAMPLE0123456789\n",
+        "NOTAREALKEYNOTAREALKEY+/=="
+    );
+    let text = format!("{block}\nThe rest of this message is not a key.");
 
     let findings = guard().scan(&text);
 
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].kind, SecretKind::PrivateKeyBlock);
-    assert_eq!(findings[0].range, 0..text.len());
+    assert_eq!(&text[findings[0].range.clone()], block);
+    assert_eq!(
+        redact(&text, &findings),
+        "[REDACTED]\nThe rest of this message is not a key."
+    );
+}
+
+#[test]
+fn detects_encrypted_legacy_pem_block_with_header_lines() {
+    let dashes = "-----";
+    let block = format!(
+        "{dashes}BEGIN RSA PRIVATE KEY{dashes}\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,FAKE0123\n\nFAKEEXAMPLEFAKEEXAMPLE0123456789\nNOTAREALKEY==\n{dashes}END RSA PRIVATE KEY{dashes}"
+    );
+    let text = format!("key:\n{block}\ndone");
+
+    let findings = guard().scan(&text);
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(&text[findings[0].range.clone()], block);
+}
+
+#[test]
+fn detects_pem_block_escaped_inside_json() {
+    // Service-account JSON files write newlines as the two characters `\n`.
+    let block = format!(
+        "{}{}{}",
+        r"-----BEGIN PRIVATE KEY-----\n",
+        r"FAKEEXAMPLEFAKEEXAMPLE0123456789\nNOTAREALKEY==\n",
+        "-----END PRIVATE KEY-----"
+    );
+    let text = format!(r#"{{"private_key": "{block}\n", "type": "FAKE"}}"#);
+
+    let findings = guard().scan(&text);
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].kind, SecretKind::PrivateKeyBlock);
+    assert_eq!(&text[findings[0].range.clone()], block);
 }
 
 #[test]
@@ -156,6 +198,88 @@ fn detects_jwt() {
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].kind, SecretKind::Jwt);
     assert_eq!(&text[findings[0].range.clone()], jwt);
+}
+
+#[test]
+fn detects_signed_jwt_with_empty_claims() {
+    // Payload `e30` is base64url for `{}`: only 3 characters.
+    let jwt = format!(
+        "{}.{}.{}",
+        "eyJhbGciOiJIUzI1NiJ9", "e30", "FAKE_EXAMPLE-signature"
+    );
+    let text = format!("token {jwt} end");
+
+    let findings = guard().scan(&text);
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].kind, SecretKind::Jwt);
+    assert_eq!(&text[findings[0].range.clone()], jwt);
+}
+
+/// One fake sample of every built-in kind.
+fn one_sample_per_kind() -> Vec<(SecretKind, String)> {
+    vec![
+        (
+            SecretKind::AwsAccessKey,
+            format!("{}{}", "AKIA", "IOSFODNN7EXAMPLE"),
+        ),
+        (
+            SecretKind::GitHubToken,
+            format!("{}{}", "ghp_", "FAKEexample0123456789abcdefghijklmno"),
+        ),
+        (
+            SecretKind::AnthropicApiKey,
+            format!("{}{}", "sk-ant-api03-", "FAKE_EXAMPLE-0123456789abcdefghij"),
+        ),
+        (
+            SecretKind::OpenAiApiKey,
+            format!(
+                "{}{}",
+                "sk-", "FAKEEXAMPLE0123456789abcdefghijklmnopqrstuvwxyzAB"
+            ),
+        ),
+        (
+            SecretKind::GoogleApiKey,
+            format!("{}{}", "AIza", "SyFAKE-EXAMPLE_0123456789abcdefghij"),
+        ),
+        (
+            SecretKind::SlackToken,
+            format!("{}{}", "xoxb-", "0000000000-FAKE-EXAMPLE"),
+        ),
+        (SecretKind::PrivateKeyBlock, fake_pem("RSA ")),
+        (
+            SecretKind::Jwt,
+            format!(
+                "{}.{}.{}",
+                "eyJhbGciOiJIUzI1NiJ9", "e30", "FAKE_EXAMPLE-signature"
+            ),
+        ),
+    ]
+}
+
+#[test]
+fn detects_every_kind_glued_to_thai_text() {
+    // Thai is written without spaces, so a key often touches Thai letters.
+    for (kind, secret) in one_sample_per_kind() {
+        let text = format!("กุญแจคือ{secret}ของฉัน");
+
+        let findings = guard().scan(&text);
+
+        assert_eq!(findings.len(), 1, "{kind:?} not found once in Thai text");
+        assert_eq!(findings[0].kind, kind);
+        assert_eq!(&text[findings[0].range.clone()], secret, "{kind:?}");
+    }
+}
+
+#[test]
+fn redacts_a_key_glued_to_thai_text_and_keeps_the_thai_intact() {
+    let aws = format!("{}{}", "AKIA", "IOSFODNN7EXAMPLE");
+    let text = format!("กุญแจคือ{aws}ของฉัน");
+
+    let redacted = redact(&text, &guard().scan(&text));
+
+    assert_eq!(redacted, "กุญแจคือ[REDACTED]ของฉัน");
+    assert!(!redacted.contains("IOSFODNN7"));
 }
 
 #[test]
@@ -218,6 +342,28 @@ fn invalid_extra_pattern_is_an_error_not_a_panic() {
         Err(SecretGuardError::InvalidPattern { index, .. }) => assert_eq!(index, 1),
         Ok(_) => panic!("expected an error for an invalid pattern"),
     }
+}
+
+#[test]
+fn invalid_pattern_error_never_shows_the_pattern() {
+    // A user may paste a real key as a pattern; an invalid one must not leak.
+    let leaky = format!("{}{}(", "AKIA", "IOSFODNN7EXAMPLE");
+    let error = match SecretGuard::new(&[leaky]) {
+        Err(error) => error,
+        Ok(_) => panic!("expected an error for an invalid pattern"),
+    };
+
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+    let pretty_debug = format!("{error:#?}");
+    for shown in [&display, &debug, &pretty_debug] {
+        assert!(!shown.contains("IOSFODNN7"), "pattern leaked: {shown}");
+    }
+    assert!(
+        std::error::Error::source(&error).is_none(),
+        "the regex error (which quotes the pattern) must not be attached"
+    );
+    assert_eq!(display, "extra secret pattern #0 is not a valid regex");
 }
 
 #[test]
@@ -364,6 +510,25 @@ fn assert_clean(text: &str) {
 fn ignores_ordinary_words_containing_sk() {
     assert_clean("The skeleton key opened the risk-free skylight.");
     assert_clean("Ask Dave. Task-switching is a sk-ill, see sk-learn and sk-12345.");
+}
+
+#[test]
+fn ignores_pem_private_key_header_without_a_body() {
+    let header = "-----BEGIN RSA PRIVATE KEY-----";
+    // In documentation, on its own line, followed by prose.
+    assert_clean(&format!(
+        "A key file starts with\n{header}\nand everything after it must stay secret."
+    ));
+    // Inline in a sentence.
+    assert_clean(&format!("Look for {header} at the top of the file."));
+    // At the very end of the text.
+    assert_clean(&format!("The header looks like this:\n{header}"));
+}
+
+#[test]
+fn ignores_long_kebab_case_names_starting_with_sk() {
+    assert_clean("kubectl delete deploy sk-my-really-long-kubernetes-resource-name-for-production");
+    assert_clean("bucket sk_snake_case_name_that_is_long_enough_to_look_like_a_key_0123");
 }
 
 #[test]
