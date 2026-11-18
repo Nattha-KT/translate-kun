@@ -1,5 +1,6 @@
 //! Core logic for `kun`. No terminal I/O lives here.
 
+pub mod config;
 pub mod language;
 pub mod provider;
 pub mod secret_guard;
