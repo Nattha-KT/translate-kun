@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(/**)",
+      "Bash(/opt/homebrew/opt/rustup/bin/cargo *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git branch*)",
+      "Bash(git rev-parse*)",
+      "Bash(orca orchestration *)",
+      "Bash(/Applications/Orca.app/Contents/Resources/bin/orca orchestration *)"
+    ],
+    "deny": [
+      "Bash(git push*)",
+      "Edit(/.env*)"
+    ]
+  }
+}
