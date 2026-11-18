@@ -184,6 +184,94 @@ fn detects_pem_block_escaped_inside_json() {
     assert_eq!(&text[findings[0].range.clone()], block);
 }
 
+/// Writes newlines the way JSON does: as the two characters `\n`.
+fn json_escaped(text: &str) -> String {
+    text.replace('\n', r"\n")
+}
+
+/// Checks that `block` is found exactly once, as a private key block, in
+/// `before + block + after`, both with real newlines and JSON-escaped, and
+/// that redacting leaves `before` and `after` untouched.
+fn assert_pem_found(before: &str, block: &str, after: &str) {
+    let plain = (before.to_string(), block.to_string(), after.to_string());
+    let escaped = (
+        json_escaped(before),
+        json_escaped(block),
+        json_escaped(after),
+    );
+    for (before, block, after) in [plain, escaped] {
+        let text = format!("{before}{block}{after}");
+
+        let findings = guard().scan(&text);
+
+        assert_eq!(findings.len(), 1, "in {text:?}");
+        assert_eq!(findings[0].kind, SecretKind::PrivateKeyBlock);
+        assert_eq!(&text[findings[0].range.clone()], block);
+        assert_eq!(
+            redact(&text, &findings),
+            format!("{before}[REDACTED]{after}")
+        );
+    }
+}
+
+/// Checks that `text` has no finding, with real newlines and JSON-escaped.
+fn assert_pem_clean(text: &str) {
+    for text in [text.to_string(), json_escaped(text)] {
+        let findings = guard().scan(&text);
+        assert!(findings.is_empty(), "false positive in {text:?}");
+    }
+}
+
+#[test]
+fn encrypted_pem_without_end_is_fully_covered() {
+    let block = format!(
+        "{}{}{}{}",
+        "-----BEGIN RSA PRIVATE KEY-----\n",
+        "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,FAKE0123\n\n",
+        "FAKEEXAMPLEFAKEEXAMPLE0123456789\n",
+        "Zg=="
+    );
+    assert_pem_found("my key:\n", &block, "\n\nThanks!");
+    assert_pem_found("my key:\n", &block, "");
+}
+
+#[test]
+fn truncated_pem_with_short_last_line_leaves_nothing_behind() {
+    let block = format!(
+        "{}{}{}",
+        "-----BEGIN PRIVATE KEY-----\n", "FAKEEXAMPLEFAKEEXAMPLE0123456789\n", "Zg=="
+    );
+    assert_pem_found("", &block, "");
+    assert_pem_found("", &block, "\n\nNext paragraph.");
+}
+
+#[test]
+fn whole_pem_block_is_found_with_json_escaped_newlines_too() {
+    assert_pem_found("before\n", &fake_pem("EC "), "\nafter");
+}
+
+#[test]
+fn pem_header_and_end_with_only_metadata_is_not_a_finding() {
+    let dashes = "-----";
+    assert_pem_clean(&format!(
+        "{dashes}BEGIN RSA PRIVATE KEY{dashes}\nProc-Type: 4,ENCRYPTED\n\n{dashes}END RSA PRIVATE KEY{dashes}"
+    ));
+    assert_pem_clean(&format!(
+        "{dashes}BEGIN PRIVATE KEY{dashes}\n{dashes}END PRIVATE KEY{dashes}"
+    ));
+}
+
+#[test]
+fn pem_header_in_prose_is_not_a_finding() {
+    let header = "-----BEGIN RSA PRIVATE KEY-----";
+    assert_pem_clean(&format!("Look for {header} at the top of the file."));
+    assert_pem_clean(&format!("It starts with\n{header}\nand then the key."));
+    assert_pem_clean(&format!(
+        "It starts with\n{header}\n\nFAKEEXAMPLE0123456789"
+    ));
+    assert_pem_clean(&format!("The header is:\n{header}"));
+}
+
 #[test]
 fn detects_jwt() {
     // header `{"alg":"HS256"}`, a fake payload, a fake signature.
@@ -207,6 +295,18 @@ fn detects_signed_jwt_with_empty_claims() {
         "{}.{}.{}",
         "eyJhbGciOiJIUzI1NiJ9", "e30", "FAKE_EXAMPLE-signature"
     );
+    let text = format!("token {jwt} end");
+
+    let findings = guard().scan(&text);
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].kind, SecretKind::Jwt);
+    assert_eq!(&text[findings[0].range.clone()], jwt);
+}
+
+#[test]
+fn detects_jwt_with_short_signature() {
+    let jwt = format!("{}.{}.{}", "eyJhbGciOiJIUzI1NiJ9", "e30", "FAKE01");
     let text = format!("token {jwt} end");
 
     let findings = guard().scan(&text);
@@ -529,6 +629,11 @@ fn ignores_pem_private_key_header_without_a_body() {
 fn ignores_long_kebab_case_names_starting_with_sk() {
     assert_clean("kubectl delete deploy sk-my-really-long-kubernetes-resource-name-for-production");
     assert_clean("bucket sk_snake_case_name_that_is_long_enough_to_look_like_a_key_0123");
+    // First segment is 40+ letters/digits, but the name goes on with `-`/`_`.
+    let segment = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEF";
+    assert!(segment.len() >= 40);
+    assert_clean(&format!("deploy sk-{segment}-more-words"));
+    assert_clean(&format!("deploy sk-{segment}_more_words"));
 }
 
 #[test]
