@@ -13,7 +13,7 @@
   - **Claude Code workers**: `.claude/settings.json` puts `/opt/homebrew/opt/rustup/bin` on `PATH`, so just run `cargo ...`. Don't `export PATH=...`: it triggers a permission prompt.
   - **Codex / other agents**: prefix each command with `PATH=/opt/homebrew/opt/rustup/bin:$PATH`. The bare absolute cargo path fails, because cargo cannot find `rustc`.
 - Read files with the Read tool, not long `grep`/`head` shell chains.
-- Create and edit files with the Write and Edit tools, one file per call. **Never create files via bash heredocs or `cat >`**: every such command needs a human approval. Use Bash only for `cargo` and `git`.
+- Create and edit files with the Write and Edit tools, one file per call. **Never create files via bash heredocs or `cat >`**: every such command needs a human approval. Use Bash only for `cargo` and `git`, **one plain command per call**: no `;`, `&&` chains or pipes into other tools, because each extra command can trigger an approval prompt.
 - Toolchain: stable (rustc 1.100). `clippy` and `rustfmt` are installed.
 
 ## Code rules
