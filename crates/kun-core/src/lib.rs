@@ -1,5 +1,8 @@
 //! Core logic for `kun`. No terminal I/O lives here.
 
+pub mod language;
+pub mod provider;
+
 /// Returns the version of the `kun-core` crate (shared by the whole workspace).
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
