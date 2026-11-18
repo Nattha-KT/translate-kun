@@ -1,6 +1,7 @@
 //! Project Config and User Config: loading, trust rules and merging.
 //!
-//! No terminal I/O and no credential values are handled here.
+//! No terminal I/O here. Credential values from a User Config `[credentials]`
+//! table are kept private and only handed out as a `Secret`.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -9,6 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::credentials::Secret;
 use crate::language::LanguageCode;
 
 /// A built-in Provider that a config file may select.
@@ -109,6 +111,37 @@ impl fmt::Debug for SecretGuardSettings {
     }
 }
 
+/// The `[credentials]` table. Allowed in the User Config only (ADR 0003).
+///
+/// The values stay private: read one with [`FileCredentials::api_key`], which
+/// wraps it in a [`Secret`]. `Debug` shows only whether a key is set.
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileCredentials {
+    google_api_key: Option<String>,
+    anthropic_api_key: Option<String>,
+}
+
+impl FileCredentials {
+    /// The API key stored for `provider`, as written in the file.
+    pub fn api_key(&self, provider: ProviderName) -> Option<Secret> {
+        let value = match provider {
+            ProviderName::Google => &self.google_api_key,
+            ProviderName::Anthropic => &self.anthropic_api_key,
+        };
+        value.as_ref().map(|text| Secret::new(text.clone()))
+    }
+}
+
+impl fmt::Debug for FileCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FileCredentials")
+            .field("google_api_key", &redact_text(&self.google_api_key))
+            .field("anthropic_api_key", &redact_text(&self.anthropic_api_key))
+            .finish()
+    }
+}
+
 /// The validated content of one config file (Project Config or User Config).
 ///
 /// `Debug` hides free-text values (see [`Redacted`]).
@@ -124,6 +157,8 @@ pub struct FileConfig {
     pub timeout_secs: Option<u64>,
     pub secret_guard: SecretGuardSettings,
     pub providers: HashMap<ProviderName, ProviderSettings>,
+    /// User Config only. Always empty in a Project Config.
+    pub credentials: FileCredentials,
 }
 
 impl fmt::Debug for FileConfig {
@@ -138,6 +173,7 @@ impl fmt::Debug for FileConfig {
             .field("timeout_secs", &self.timeout_secs)
             .field("secret_guard", &self.secret_guard)
             .field("providers", &self.providers)
+            .field("credentials", &Redacted)
             .finish()
     }
 }
@@ -329,6 +365,7 @@ struct RawConfig {
     timeout_secs: Option<u64>,
     secret_guard: SecretGuardSettings,
     providers: HashMap<ProviderName, ProviderSettings>,
+    credentials: FileCredentials,
 }
 
 fn invalid(path: &Path, key: &str) -> ConfigError {
@@ -377,6 +414,7 @@ fn validate(path: &Path, raw: RawConfig) -> Result<FileConfig, ConfigError> {
         timeout_secs: raw.timeout_secs,
         secret_guard: raw.secret_guard,
         providers: raw.providers,
+        credentials: raw.credentials,
     })
 }
 
@@ -968,6 +1006,7 @@ model = "claude-haiku-5-5"
                 allow_secrets: false,
             },
             providers,
+            credentials: FileCredentials::default(),
         };
         let effective = merge(&Overrides::default(), Some(&file), Some(&file));
 
@@ -1235,6 +1274,69 @@ model = "claude-haiku-5-5"
     fn is_private_file_is_false_for_a_missing_file() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!is_private_file(&dir.path().join("nope.toml")));
+    }
+
+    const FAKE_KEY: &str = "AIzaFAKE-EXAMPLE-KEY-0123456789";
+
+    #[test]
+    fn user_config_accepts_a_credentials_table() {
+        let text = format!(
+            "[credentials]\ngoogle_api_key = \"{FAKE_KEY}\"\nanthropic_api_key = \"sk-ant-FAKE-EXAMPLE\""
+        );
+        let config = parse_user_config(&path(), &text).unwrap();
+        let google = config.credentials.api_key(ProviderName::Google).unwrap();
+        assert_eq!(google.expose(), FAKE_KEY);
+        let anthropic = config.credentials.api_key(ProviderName::Anthropic).unwrap();
+        assert_eq!(anthropic.expose(), "sk-ant-FAKE-EXAMPLE");
+    }
+
+    #[test]
+    fn credentials_table_is_optional_and_may_hold_one_key() {
+        let empty = parse_user_config(&path(), "").unwrap();
+        assert!(empty.credentials.api_key(ProviderName::Google).is_none());
+
+        let text = "[credentials]\nanthropic_api_key = \"sk-ant-FAKE-EXAMPLE\"";
+        let config = parse_user_config(&path(), text).unwrap();
+        assert!(config.credentials.api_key(ProviderName::Google).is_none());
+        assert!(
+            config
+                .credentials
+                .api_key(ProviderName::Anthropic)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn credentials_table_rejects_unknown_keys() {
+        let err = parse_user_config(&path(), "[credentials]\nopenai_api_key = \"x\"").unwrap_err();
+        assert!(matches!(err, ConfigError::Parse { .. }));
+    }
+
+    #[test]
+    fn project_config_rejects_a_credentials_table() {
+        for text in [
+            format!("[credentials]\ngoogle_api_key = \"{FAKE_KEY}\""),
+            "[credentials]".to_string(),
+        ] {
+            assert_eq!(forbidden_key(&text), "credentials");
+            let err = parse_project_config(&path(), &text).unwrap_err();
+            assert!(!format!("{err} {err:?}").contains(FAKE_KEY));
+        }
+    }
+
+    #[test]
+    fn debug_output_redacts_credentials() {
+        let text = format!("[credentials]\ngoogle_api_key = \"{FAKE_KEY}\"");
+        let config = parse_user_config(&path(), &text).unwrap();
+        for output in [
+            format!("{config:?}"),
+            format!("{config:#?}"),
+            format!("{:?}", config.credentials),
+            format!("{:#?}", config.credentials),
+        ] {
+            assert!(!output.contains(FAKE_KEY), "leaked in: {output}");
+        }
+        assert!(format!("{config:?}").contains("credentials: <redacted>"));
     }
 
     #[test]
