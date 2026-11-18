@@ -9,7 +9,9 @@
 
 ## Environment
 
-- The Rust toolchain is installed via Homebrew rustup but may not be on `PATH`. Call cargo by absolute path: `/opt/homebrew/opt/rustup/bin/cargo` (the rustup proxy finds rustc, clippy and rustfmt itself). **Don't `export PATH=...`**: it triggers a permission prompt for every worker.
+- Rust comes from Homebrew rustup.
+  - **Claude Code workers**: `.claude/settings.json` puts `/opt/homebrew/opt/rustup/bin` on `PATH`, so just run `cargo ...`. Don't `export PATH=...`: it triggers a permission prompt.
+  - **Codex / other agents**: prefix each command with `PATH=/opt/homebrew/opt/rustup/bin:$PATH`. The bare absolute cargo path fails, because cargo cannot find `rustc`.
 - Read files with the Read tool, not long `grep`/`head` shell chains.
 - Create and edit files with the Write and Edit tools, one file per call. **Never create files via bash heredocs or `cat >`**: every such command needs a human approval. Use Bash only for `cargo` and `git`.
 - Toolchain: stable (rustc 1.100). `clippy` and `rustfmt` are installed.

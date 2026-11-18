@@ -1,7 +1,11 @@
 {
+  "env": {
+    "PATH": "/opt/homebrew/opt/rustup/bin:/opt/homebrew/bin:/Applications/Orca.app/Contents/Resources/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  },
   "permissions": {
     "allow": [
       "Edit(/**)",
+      "Bash(cargo *)",
       "Bash(/opt/homebrew/opt/rustup/bin/cargo *)",
       "Bash(git status*)",
       "Bash(git diff*)",
