@@ -28,6 +28,10 @@
 - **No network in tests.** Use the fake Provider. Live tests go behind `--features live` only.
 - **Never** commit credentials, real API keys, or `.env` files. Test fixtures that look like secrets must be obviously fake (e.g. contain `EXAMPLE` or `FAKE`) and still exercise the detector.
 - Never accept API keys via CLI flags. Never print, log or serialise a credential.
+- **No secret leaks through `Debug`, `Display` or errors.** This is the most frequent review finding so far (S1, S2, S3).
+  - Any type or error that can hold user-supplied free text (input text, config strings, regex patterns, HTTP bodies, URLs) must not show that text in `Debug`, `Display` or `Error::source()`.
+  - Use fixed messages and structured, non-sensitive fields (enums, codes, indices, byte ranges), or write a manual `Debug` that prints `<redacted>`.
+  - Add a test that formats with `{:?}` and `{:#?}` and asserts a fake key is absent.
 - Edit only the files your slice spec lists as in scope. If something outside scope must change, stop and report it.
 - Do not add dependencies beyond those your slice spec allows without saying why in your report.
 
