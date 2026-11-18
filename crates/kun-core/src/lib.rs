@@ -1,0 +1,17 @@
+//! Core logic for `kun`. No terminal I/O lives here.
+
+/// Returns the version of the `kun-core` crate (shared by the whole workspace).
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_is_not_empty() {
+        assert!(!version().is_empty());
+        assert_eq!(version(), "0.1.0");
+    }
+}
