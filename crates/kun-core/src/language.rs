@@ -41,12 +41,14 @@ impl FromStr for LanguageCode {
     type Err = LanguageCodeError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
+        // Check the raw length first, so padded or huge input is rejected
+        // without being processed further.
+        if input.chars().count() > MAX_LEN {
+            return Err(LanguageCodeError::TooLong);
+        }
         let input = input.trim();
         if input.is_empty() {
             return Err(LanguageCodeError::Empty);
-        }
-        if input.chars().count() > MAX_LEN {
-            return Err(LanguageCodeError::TooLong);
         }
 
         let mut parts = input.split('-');
@@ -119,5 +121,17 @@ mod tests {
     #[test]
     fn rejects_overlong_input() {
         assert_eq!(parse("abcdefghijkl"), Err(LanguageCodeError::TooLong));
+    }
+
+    #[test]
+    fn rejects_padded_overlong_input() {
+        // Trims to "en", but the raw input is far longer than any real code.
+        let padded = format!("{}en{}", " ".repeat(1000), " ".repeat(1000));
+        assert_eq!(parse(&padded), Err(LanguageCodeError::TooLong));
+    }
+
+    #[test]
+    fn still_accepts_short_surrounding_whitespace() {
+        assert_eq!(parse(" en ").unwrap().as_str(), "en");
     }
 }
