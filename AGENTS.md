@@ -50,6 +50,20 @@ Open issues: <list or "none">
 Rust concepts used (3–5 bullets, Thai, for the owner to learn from)
 ```
 
+## Skills to use
+
+Skills from mattpocock-skills are installed for both Claude Code and Codex. Use them:
+
+| Role | When | Skill |
+|---|---|---|
+| Implementer | Any slice with logic (S1–S7); **mandatory** for S1 Secret Guard | `tdd` (red → green → refactor, one behaviour at a time) |
+| Implementer | Designing a public interface (e.g. the Provider trait in S3, config types in S2) | `codebase-design` |
+| Implementer | A failing test or bug you can't explain quickly | `diagnosing-bugs` |
+| Reviewer (Codex) | Every slice | `code-review`: Standards = `AGENTS.md`; Spec = the slice spec + named `requirements.md` sections |
+| Anyone | A new domain term or a decision worth an ADR | `domain-modeling` (update `GLOSSARY.md` / `docs/adr/`) |
+
+Orca coordination (`orchestration` skill) is handled by the coordinator. Workers only report back with `worker_done` / `ask` as their task preamble says.
+
 ## Token discipline
 
 - Read only the requirement sections named in your spec; don't explore the whole repo.
