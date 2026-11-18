@@ -9,6 +9,11 @@ license.workspace = true
 name = "kun"
 path = "src/main.rs"
 
+[features]
+# Lets `--provider fake` select the offline fake Provider. Only for tests:
+# it must never be a default feature.
+fake-provider = []
+
 [dependencies]
 kun-core = { path = "../kun-core" }
 clap = { version = "4", features = ["derive"] }
@@ -16,6 +21,9 @@ clap = { version = "4", features = ["derive"] }
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
+# Temp directories to isolate HOME / XDG_CONFIG_HOME in integration tests
+# (already in Cargo.lock through kun-core's dev-dependencies).
+tempfile = "3.27.0"
 
 [lints]
 workspace = true

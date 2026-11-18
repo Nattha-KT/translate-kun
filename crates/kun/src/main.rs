@@ -1,15 +1,37 @@
+mod app;
+mod args;
+mod error;
+mod guard;
+mod input;
+mod providers;
+mod settings;
+
+use std::process::ExitCode;
+
 use clap::{CommandFactory, Parser};
 
-/// A command-line translator for developers.
-#[derive(Parser)]
-#[command(name = "kun", version = kun_core::version())]
-struct Cli {}
+use args::Cli;
+use error::CliError;
 
-fn main() {
-    // No subcommands yet: parse flags (--help / --version are handled by clap),
-    // then print help to stderr and exit with code 2.
-    let _cli = Cli::parse();
-    let _ = Cli::command().write_help(&mut std::io::stderr());
-    eprintln!();
-    std::process::exit(2);
+fn main() -> ExitCode {
+    // clap handles --help and --version, and exits with code 2 on bad flags.
+    let cli = Cli::parse();
+
+    match app::run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            report(&error);
+            ExitCode::from(error.exit_code())
+        }
+    }
+}
+
+/// Prints an error on stderr. With no text at all, print the help instead.
+fn report(error: &CliError) {
+    if matches!(error, CliError::NoText) {
+        let _ = Cli::command().write_help(&mut std::io::stderr());
+        eprintln!();
+    } else {
+        eprintln!("error: {error}");
+    }
 }

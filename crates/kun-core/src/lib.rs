@@ -4,6 +4,7 @@ pub mod config;
 pub mod language;
 pub mod provider;
 pub mod secret_guard;
+pub mod translate;
 
 /// Returns the version of the `kun-core` crate (shared by the whole workspace).
 pub fn version() -> &'static str {
