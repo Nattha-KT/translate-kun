@@ -3,7 +3,8 @@
 //! No terminal I/O and no credential values are handled here.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::fmt;
+use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -48,8 +49,30 @@ impl LanguagePair {
     }
 }
 
+/// Stands in for a free-text value in `Debug` output.
+///
+/// A user may paste a credential into any free-text setting (`style`,
+/// `endpoint`, `protected_terms`, ...), so the config types never print those.
+struct Redacted;
+
+impl fmt::Debug for Redacted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
+/// `None` stays `None`; `Some(text)` becomes `Some(<redacted>)`.
+fn redact_text(value: &Option<String>) -> Option<Redacted> {
+    value.as_ref().map(|_| Redacted)
+}
+
+/// Same as [`redact_text`] for an optional list of strings.
+fn redact_list(value: &Option<Vec<String>>) -> Option<Redacted> {
+    value.as_ref().map(|_| Redacted)
+}
+
 /// Per-Provider settings from `[providers.<name>]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderSettings {
     pub model: Option<String>,
@@ -57,8 +80,17 @@ pub struct ProviderSettings {
     pub endpoint: Option<String>,
 }
 
+impl fmt::Debug for ProviderSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderSettings")
+            .field("model", &redact_text(&self.model))
+            .field("endpoint", &redact_text(&self.endpoint))
+            .finish()
+    }
+}
+
 /// The `[secret_guard]` table.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SecretGuardSettings {
     pub extra_patterns: Vec<String>,
@@ -67,18 +99,47 @@ pub struct SecretGuardSettings {
     pub allow_secrets: bool,
 }
 
+impl fmt::Debug for SecretGuardSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecretGuardSettings")
+            .field("extra_patterns", &Redacted)
+            .field("force_redact", &self.force_redact)
+            .field("allow_secrets", &self.allow_secrets)
+            .finish()
+    }
+}
+
 /// The validated content of one config file (Project Config or User Config).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// `Debug` hides free-text values (see [`Redacted`]).
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct FileConfig {
     pub target: Option<LanguageCode>,
     pub pair: Option<LanguagePair>,
     pub provider: Option<ProviderName>,
-    pub protected_terms: Vec<String>,
+    /// `None` = not set in this file; `Some(vec![])` = explicitly cleared.
+    pub protected_terms: Option<Vec<String>>,
     pub style: Option<String>,
     pub max_chars: Option<usize>,
     pub timeout_secs: Option<u64>,
     pub secret_guard: SecretGuardSettings,
     pub providers: HashMap<ProviderName, ProviderSettings>,
+}
+
+impl fmt::Debug for FileConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FileConfig")
+            .field("target", &self.target)
+            .field("pair", &self.pair)
+            .field("provider", &self.provider)
+            .field("protected_terms", &redact_list(&self.protected_terms))
+            .field("style", &redact_text(&self.style))
+            .field("max_chars", &self.max_chars)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("secret_guard", &self.secret_guard)
+            .field("providers", &self.providers)
+            .finish()
+    }
 }
 
 /// Default input limit in characters (requirements §10).
@@ -101,7 +162,9 @@ pub struct Overrides {
 }
 
 /// The final settings after merging CLI, Project Config, User Config and defaults.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Debug` hides free-text values (see [`Redacted`]).
+#[derive(Clone, PartialEq, Eq)]
 pub struct EffectiveConfig {
     pub target: Option<LanguageCode>,
     pub pair: Option<LanguagePair>,
@@ -112,6 +175,22 @@ pub struct EffectiveConfig {
     pub timeout_secs: u64,
     pub secret_guard: SecretGuardSettings,
     pub providers: HashMap<ProviderName, ProviderSettings>,
+}
+
+impl fmt::Debug for EffectiveConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EffectiveConfig")
+            .field("target", &self.target)
+            .field("pair", &self.pair)
+            .field("provider", &self.provider)
+            .field("protected_terms", &Redacted)
+            .field("style", &redact_text(&self.style))
+            .field("max_chars", &self.max_chars)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("secret_guard", &self.secret_guard)
+            .field("providers", &self.providers)
+            .finish()
+    }
 }
 
 impl EffectiveConfig {
@@ -155,8 +234,12 @@ pub fn merge(
         .or(user.timeout_secs)
         .unwrap_or(DEFAULT_TIMEOUT_SECS);
 
-    // Lists add up; the User Config comes first.
-    let protected_terms = union(&user.protected_terms, &project.protected_terms);
+    // A normal field: Project wins when it sets the list (even to `[]`).
+    let protected_terms = project
+        .protected_terms
+        .clone()
+        .or_else(|| user.protected_terms.clone())
+        .unwrap_or_default();
 
     // Security fields can only get stricter, or come from a trusted layer.
     let secret_guard = SecretGuardSettings {
@@ -232,13 +315,15 @@ pub enum ConfigError {
 }
 
 /// The shape of a config file as written. Converted into [`FileConfig`].
-#[derive(Debug, Default, Deserialize)]
+///
+/// No `Debug`: it holds the raw free-text values.
+#[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 struct RawConfig {
     target: Option<String>,
     pair: Option<Vec<String>>,
     provider: Option<ProviderName>,
-    protected_terms: Vec<String>,
+    protected_terms: Option<Vec<String>>,
     style: Option<String>,
     max_chars: Option<usize>,
     timeout_secs: Option<u64>,
@@ -298,9 +383,30 @@ fn validate(path: &Path, raw: RawConfig) -> Result<FileConfig, ConfigError> {
 /// File name of a Project Config.
 const PROJECT_CONFIG_NAME: &str = ".kun.toml";
 
+/// `path` made absolute, with `.` and `..` components removed.
+///
+/// `..` is resolved lexically (without looking at symlinks).
+fn absolute_normalized(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut result = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                result.pop();
+            }
+            other => result.push(other.as_os_str()),
+        }
+    }
+    result
+}
+
 /// Walk up from `start` to the filesystem root and return the closest `.kun.toml`.
+///
+/// A relative `start` (such as `.`) is made absolute first, so the walk really
+/// reaches the filesystem root. The returned path is absolute.
 pub fn find_project_config(start: &Path) -> Option<PathBuf> {
-    start
+    absolute_normalized(start)
         .ancestors()
         .map(|dir| dir.join(PROJECT_CONFIG_NAME))
         .find(|candidate| candidate.is_file())
@@ -472,7 +578,7 @@ endpoint = "http://localhost:11434"
         assert_eq!(pair.first(), &lang("en"));
         assert_eq!(pair.second(), &lang("th"));
         assert_eq!(config.provider, Some(ProviderName::Google));
-        assert_eq!(config.protected_terms, vec!["translate-kun"]);
+        assert_eq!(config.protected_terms, Some(strings(&["translate-kun"])));
         assert_eq!(config.style.as_deref(), Some("casual, developer tone"));
         assert_eq!(config.max_chars, Some(5000));
         assert_eq!(config.timeout_secs, Some(30));
@@ -796,20 +902,125 @@ model = "claude-haiku-5-5"
     }
 
     #[test]
-    fn protected_terms_are_a_deduplicated_union_in_order() {
+    fn protected_terms_follow_normal_precedence_project_over_user() {
         let user = FileConfig {
-            protected_terms: strings(&["kun", "Rust"]),
+            protected_terms: Some(strings(&["kun", "Rust"])),
             ..FileConfig::default()
         };
         let project = FileConfig {
-            protected_terms: strings(&["translate-kun", "kun"]),
+            protected_terms: Some(strings(&["translate-kun"])),
             ..FileConfig::default()
         };
+
+        let both = merge(&Overrides::default(), Some(&project), Some(&user));
+        assert_eq!(both.protected_terms, strings(&["translate-kun"]));
+
+        // A Project Config that does not set them leaves the User Config's alone.
+        let unset = FileConfig::default();
+        let user_wins = merge(&Overrides::default(), Some(&unset), Some(&user));
+        assert_eq!(user_wins.protected_terms, strings(&["kun", "Rust"]));
+
+        let user_only = merge(&Overrides::default(), None, Some(&user));
+        assert_eq!(user_only.protected_terms, strings(&["kun", "Rust"]));
+    }
+
+    #[test]
+    fn an_explicit_empty_protected_terms_list_clears_the_user_list() {
+        let user = FileConfig {
+            protected_terms: Some(strings(&["kun"])),
+            ..FileConfig::default()
+        };
+        let project = parse_project_config(&path(), "protected_terms = []").unwrap();
+        assert_eq!(project.protected_terms, Some(Vec::new()));
+
         let config = merge(&Overrides::default(), Some(&project), Some(&user));
-        assert_eq!(
-            config.protected_terms,
-            strings(&["kun", "Rust", "translate-kun"])
+        assert!(config.protected_terms.is_empty());
+    }
+
+    #[test]
+    fn absent_protected_terms_stay_unset_in_the_file_layer() {
+        let config = parse_project_config(&path(), "target = \"th\"").unwrap();
+        assert_eq!(config.protected_terms, None);
+    }
+
+    #[test]
+    fn debug_output_never_shows_free_text_values() {
+        let fake = "FAKE-EXAMPLE-KEY-0123456789";
+        let mut providers = HashMap::new();
+        providers.insert(
+            ProviderName::Anthropic,
+            ProviderSettings {
+                model: Some(format!("model-{fake}")),
+                endpoint: Some(format!("http://{fake}@host")),
+            },
         );
+        let file = FileConfig {
+            target: Some(lang("th")),
+            pair: Some(pair("en", "th")),
+            provider: Some(ProviderName::Anthropic),
+            protected_terms: Some(strings(&[fake])),
+            style: Some(format!("style {fake}")),
+            max_chars: Some(123),
+            timeout_secs: Some(7),
+            secret_guard: SecretGuardSettings {
+                extra_patterns: strings(&[fake]),
+                force_redact: true,
+                allow_secrets: false,
+            },
+            providers,
+        };
+        let effective = merge(&Overrides::default(), Some(&file), Some(&file));
+
+        let outputs = [
+            format!("{file:?}"),
+            format!("{file:#?}"),
+            format!("{effective:?}"),
+            format!("{effective:#?}"),
+            format!("{:?}", effective.secret_guard),
+            format!("{:?}", effective.provider_settings(ProviderName::Anthropic)),
+        ];
+        for output in outputs {
+            assert!(!output.contains(fake), "leaked in: {output}");
+        }
+
+        // Non-sensitive values stay visible, so the output is still useful.
+        let shown = format!("{file:?}");
+        assert!(shown.contains("<redacted>"));
+        assert!(shown.contains("\"th\""));
+        assert!(shown.contains("Anthropic"));
+        assert!(shown.contains("123"));
+        assert!(shown.contains("force_redact: true"));
+    }
+
+    #[test]
+    fn relative_start_is_resolved_to_an_absolute_path_first() {
+        let root = tempfile::tempdir().unwrap();
+        let inner = root.path().join("a/b");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(root.path().join(".kun.toml"), "").unwrap();
+
+        // Build a relative path from the current directory to `inner`:
+        // enough `..` to reach the filesystem root, then down to `inner`.
+        let cwd = std::env::current_dir().unwrap();
+        let mut relative = PathBuf::new();
+        for _ in cwd.components().skip(1) {
+            relative.push("..");
+        }
+        relative.extend(inner.components().skip(1));
+        assert!(relative.is_relative());
+
+        assert_eq!(
+            find_project_config(&relative),
+            Some(root.path().join(".kun.toml"))
+        );
+    }
+
+    #[test]
+    fn dot_start_gives_an_absolute_result() {
+        // `.` is the usual start. Whatever is found must be an absolute path.
+        if let Some(found) = find_project_config(Path::new(".")) {
+            assert!(found.is_absolute(), "{found:?}");
+        }
     }
 
     #[test]
