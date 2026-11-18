@@ -252,25 +252,25 @@ impl SecretGuard {
 /// A line break is a real newline or the two characters `\n` (keys escaped
 /// inside JSON). Walking the lines after the header:
 ///
-/// - An END line closes the block: the finding runs from the header through
-///   END, but only if at least one base64 line came before it.
-/// - Without END, the block runs over the following base64 and `Name: value`
-///   metadata lines and stops at a blank line, any other line, or the end of
-///   the text. It is a finding only if at least one line was base64.
-/// - One blank line right after metadata is allowed: encrypted PEM keys put
-///   it between `Proc-Type`/`DEK-Info` and the base64 body.
+/// 1. Look for the nearest END line before any next BEGIN header. If there
+///    is one, the block is complete: the finding runs from the header through
+///    END (whatever blank or metadata lines lie between), but only if at
+///    least one base64 line lies between them.
+/// 2. With no END, see `truncated_private_key_block`.
 ///
 /// So a header on its own, or followed by a blank line or prose (as in
 /// documentation), is not a finding.
 fn private_key_block(text: &str, header_start: usize, header_end: usize) -> Option<Range<usize>> {
     let mut pos = header_end;
     let mut has_base64 = false;
-    let mut just_after_metadata = false;
-    let mut block_end = header_end;
 
     while let Some(line) = next_line(text, pos) {
         pos = line.raw_end;
         let content = &text[line.content_start..line.content_end];
+        if content.contains("-----BEGIN ") {
+            // Another key starts: this header has no END of its own.
+            break;
+        }
         match classify_pem_line(content) {
             PemLine::End { marker_len } => {
                 if has_base64 {
@@ -278,19 +278,52 @@ fn private_key_block(text: &str, header_start: usize, header_end: usize) -> Opti
                 }
                 return None;
             }
+            PemLine::Base64 => has_base64 = true,
+            PemLine::Metadata | PemLine::Blank | PemLine::Other => {}
+        }
+    }
+
+    truncated_private_key_block(text, header_start, header_end)
+}
+
+/// A PEM private key with no END line (for example, cut off when copying).
+///
+/// The block runs over the following base64 and `Name: value` metadata lines
+/// and stops at a blank line, any other line, or the end of the text. It is
+/// a finding only if at least one line was base64, and it ends after the
+/// last base64 line, so metadata-like lines after the key (`Notes: …`) stay.
+///
+/// One blank line is allowed, once, right after `Proc-Type`/`DEK-Info`
+/// metadata: encrypted PEM keys put it before the base64 body.
+fn truncated_private_key_block(
+    text: &str,
+    header_start: usize,
+    header_end: usize,
+) -> Option<Range<usize>> {
+    let mut pos = header_end;
+    let mut has_base64 = false;
+    let mut after_encryption_metadata = false;
+    let mut blank_allowance_used = false;
+    let mut block_end = header_end;
+
+    while let Some(line) = next_line(text, pos) {
+        pos = line.raw_end;
+        let content = &text[line.content_start..line.content_end];
+        match classify_pem_line(content) {
             PemLine::Base64 => {
                 has_base64 = true;
-                just_after_metadata = false;
+                after_encryption_metadata = false;
                 block_end = line.content_end;
             }
             PemLine::Metadata => {
-                just_after_metadata = true;
-                block_end = line.content_end;
+                after_encryption_metadata =
+                    content.starts_with("Proc-Type:") || content.starts_with("DEK-Info:");
             }
-            PemLine::Blank if just_after_metadata => {
-                just_after_metadata = false;
+            PemLine::Blank if after_encryption_metadata && !blank_allowance_used => {
+                blank_allowance_used = true;
+                after_encryption_metadata = false;
             }
-            PemLine::Blank | PemLine::Other => break,
+            PemLine::Blank | PemLine::Other | PemLine::End { .. } => break,
         }
     }
 

@@ -251,6 +251,33 @@ fn whole_pem_block_is_found_with_json_escaped_newlines_too() {
 }
 
 #[test]
+fn whole_pem_block_with_blank_line_inside_is_fully_covered() {
+    let dashes = "-----";
+    let block = format!(
+        "{dashes}BEGIN PRIVATE KEY{dashes}\nFAKEEXAMPLEFAKEEXAMPLE0123456789\n\nNOTAREALKEYNOTAREALKEY==\n{dashes}END PRIVATE KEY{dashes}"
+    );
+    // Checked with real and JSON-escaped newlines; nothing between BEGIN and
+    // END may survive redaction.
+    assert_pem_found("before\n", &block, "\nafter");
+}
+
+#[test]
+fn truncated_pem_does_not_swallow_notes_after_it() {
+    let block = format!(
+        "{}{}",
+        "-----BEGIN PRIVATE KEY-----\n", "FAKEEXAMPLEFAKEEXAMPLE0123456789"
+    );
+    assert_pem_found("", &block, "\nNotes: see below\n\nThanks");
+}
+
+#[test]
+fn pem_header_in_docs_does_not_reach_into_a_later_key() {
+    let dashes = "-----";
+    let doc = format!("A key starts with\n{dashes}BEGIN PRIVATE KEY{dashes}\nlike this one:\n");
+    assert_pem_found(&doc, &fake_pem(""), "\nafter");
+}
+
+#[test]
 fn pem_header_and_end_with_only_metadata_is_not_a_finding() {
     let dashes = "-----";
     assert_pem_clean(&format!(
