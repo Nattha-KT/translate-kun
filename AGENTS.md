@@ -9,8 +9,8 @@
 
 ## Environment
 
-- The Rust toolchain is installed via Homebrew rustup but may not be on `PATH`. Run this first in every shell:
-  `export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"`
+- The Rust toolchain is installed via Homebrew rustup but may not be on `PATH`. Call cargo by absolute path: `/opt/homebrew/opt/rustup/bin/cargo` (the rustup proxy finds rustc, clippy and rustfmt itself). **Don't `export PATH=...`**: it triggers a permission prompt for every worker.
+- Read files with the Read tool, not long `grep`/`head` shell chains.
 - Toolchain: stable (rustc 1.100). `clippy` and `rustfmt` are installed.
 
 ## Code rules
