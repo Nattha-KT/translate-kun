@@ -7,6 +7,11 @@ license.workspace = true
 
 [dependencies]
 keyring = "4.2.0"
+# Not called directly. It caps the log level for the whole build: ureq-proto
+# logs raw request headers and bodies (API key, source text) at TRACE, so TRACE
+# must be compiled out. Feature unification applies this to every crate, and
+# the `release_` variant wins over any `release_max_level_trace` elsewhere.
+log = { version = "0.4.35", features = ["max_level_debug", "release_max_level_debug"] }
 regex = "1.13.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

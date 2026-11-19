@@ -99,9 +99,13 @@ impl KeyringStore {
 /// purpose: some variants (e.g. `BadEncoding`) carry the stored bytes.
 fn keyring_error(error: keyring::Error) -> CredentialError {
     match error {
-        keyring::Error::NoDefaultStore | keyring::Error::NoStorageAccess(_) => {
+        // No usable keychain backend at all (e.g. Linux without a Secret
+        // Service): the caller may fall back to the User Config.
+        keyring::Error::NoDefaultStore | keyring::Error::PlatformFailure(_) => {
             CredentialError::StoreUnavailable
         }
+        // `NoStorageAccess` (a locked keychain, a denied permission) and
+        // everything else is a real failure that must not be skipped.
         _ => CredentialError::StoreFailed,
     }
 }
@@ -258,6 +262,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("config.toml");
         std::fs::write(&file, text).unwrap();
+        // Credentials are only read from a private (0600) User Config.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         crate::config::load_user_config(&file).unwrap().credentials
     }
 
@@ -468,5 +478,29 @@ mod tests {
         for output in [format!("{store:?}"), format!("{store:#?}")] {
             assert!(!output.contains(FAKE_KEY), "leaked in: {output}");
         }
+    }
+
+    #[test]
+    fn only_a_missing_keychain_backend_counts_as_unavailable() {
+        // No usable backend at all: fall through to the User Config.
+        assert_eq!(
+            keyring_error(keyring::Error::NoDefaultStore),
+            CredentialError::StoreUnavailable
+        );
+        assert_eq!(
+            keyring_error(keyring::Error::PlatformFailure("no backend".into())),
+            CredentialError::StoreUnavailable
+        );
+        // A locked keychain or a denied permission is a real failure, not a
+        // reason to fall back to the file silently.
+        assert_eq!(
+            keyring_error(keyring::Error::NoStorageAccess("locked".into())),
+            CredentialError::StoreFailed
+        );
+        let bytes_fake = FAKE_KEY.as_bytes().to_vec();
+        assert_eq!(
+            keyring_error(keyring::Error::BadEncoding(bytes_fake)),
+            CredentialError::StoreFailed
+        );
     }
 }

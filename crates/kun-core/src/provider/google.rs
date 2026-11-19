@@ -1,11 +1,15 @@
 //! The Google Cloud Translation Provider (Basic edition, v2 REST API).
 //!
 //! The HTTP call is thin. The parts worth testing are pure functions:
-//! [`request_body`], [`parse_response`], [`error_for_status`] and
-//! [`transport_error`].
+//! [`request_body`], [`read_response`], [`parse_response`],
+//! [`error_for_status`] and [`transport_error`].
+//!
+//! Logging: `kun-core` caps the `log` crate at DEBUG for the whole build (see
+//! its `Cargo.toml`), because ureq-proto dumps raw headers and bodies at TRACE.
+//! At DEBUG, ureq redacts header values.
 
 use std::fmt;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -79,17 +83,47 @@ impl Provider for GoogleProvider {
             .map_err(transport_error)?;
 
         let status = response.status().as_u16();
-        if !(200..300).contains(&status) {
-            // The body only helps to classify the error; it is never kept.
-            let body = response.body_mut().read_to_string().unwrap_or_default();
-            return Err(error_for_status(status, &body, &request.target));
-        }
-
-        let body = response
+        let mut body = response
             .body_mut()
-            .read_to_string()
-            .map_err(transport_error)?;
-        parse_response(&body)
+            .with_config()
+            .limit(MAX_BODY_BYTES)
+            .reader();
+        read_response(status, &mut body, &request.target)
+    }
+}
+
+/// Largest response body we read. A translation of the 10,000-character
+/// input limit is far smaller.
+const MAX_BODY_BYTES: u64 = 1024 * 1024;
+
+/// Turn a response into a result, reading `body` only when the status needs
+/// it: a 2xx is parsed, a 400 is classified. Every other status is decided by
+/// the code alone.
+///
+/// A failure while reading (timeout, reset connection) goes through
+/// [`transport_error`], so it is never mistaken for the HTTP status.
+fn read_response(
+    status: u16,
+    body: &mut dyn Read,
+    target: &LanguageCode,
+) -> Result<Translation, ProviderError> {
+    let is_success = (200..300).contains(&status);
+    if !is_success && status != 400 {
+        return Err(status_error(status));
+    }
+
+    let mut bytes = Vec::new();
+    body.read_to_end(&mut bytes)
+        // ureq's reader wraps its own errors in `io::Error`; `from` unwraps them.
+        .map_err(|error| transport_error(ureq::Error::from(error)))?;
+
+    if is_success {
+        let text = String::from_utf8(bytes).map_err(|_| ProviderError::InvalidResponse)?;
+        parse_response(&text)
+    } else {
+        // The body only helps to classify the error; it is never kept.
+        let text = String::from_utf8_lossy(&bytes);
+        Err(error_for_status(status, &text, target))
     }
 }
 
@@ -157,12 +191,37 @@ fn status_error(status: u16) -> ProviderError {
     }
 }
 
-/// The lower-cased `error.message` of a Google error body, or `""`.
-fn error_message(body: &str) -> String {
-    serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|value| value["error"]["message"].as_str().map(str::to_lowercase))
-        .unwrap_or_default()
+// The parts of a Google error body we look at. No `Debug`: the message may
+// echo request data.
+#[derive(Deserialize)]
+struct ErrorBody {
+    error: ErrorInfo,
+}
+
+#[derive(Deserialize)]
+struct ErrorInfo {
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    details: Vec<ErrorDetail>,
+}
+
+#[derive(Deserialize)]
+struct ErrorDetail {
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// The `reason` Google puts in `error.details[]` for an invalid API key.
+const API_KEY_INVALID: &str = "API_KEY_INVALID";
+
+/// True when a parsed error says the API key is invalid.
+fn is_invalid_api_key(error: &ErrorInfo) -> bool {
+    let by_reason = error
+        .details
+        .iter()
+        .any(|detail| detail.reason.as_deref() == Some(API_KEY_INVALID));
+    by_reason || error.message.to_lowercase().contains("api key not valid")
 }
 
 /// Phrases in a 400 message that mean the language is not supported.
@@ -175,21 +234,26 @@ const UNSUPPORTED_LANGUAGE_PHRASES: [&str; 4] = [
 
 /// Map a non-2xx response to a [`ProviderError`].
 ///
-/// A 400 is refined by its body: an invalid API key (Google answers 400, not
-/// 401) becomes `Authentication`, and an unsupported language becomes
-/// `UnsupportedLanguage(target)`. The body itself is never put in the error.
+/// A 400 is refined by its parsed body: an invalid API key (Google answers
+/// 400, not 401) becomes `Authentication`, and an unsupported language becomes
+/// `UnsupportedLanguage(target)`. A body that is not a Google error JSON
+/// keeps the plain status. The body itself is never put in the error.
 fn error_for_status(status: u16, body: &str, target: &LanguageCode) -> ProviderError {
-    if status == 400 {
-        let message = error_message(body);
-        if message.contains("api key not valid") || body.contains("API_KEY_INVALID") {
-            return ProviderError::Authentication;
-        }
-        if UNSUPPORTED_LANGUAGE_PHRASES
-            .iter()
-            .any(|phrase| message.contains(phrase))
-        {
-            return ProviderError::UnsupportedLanguage(target.clone());
-        }
+    if status != 400 {
+        return status_error(status);
+    }
+    let Ok(parsed) = serde_json::from_str::<ErrorBody>(body) else {
+        return status_error(status);
+    };
+    if is_invalid_api_key(&parsed.error) {
+        return ProviderError::Authentication;
+    }
+    let message = parsed.error.message.to_lowercase();
+    if UNSUPPORTED_LANGUAGE_PHRASES
+        .iter()
+        .any(|phrase| message.contains(phrase))
+    {
+        return ProviderError::UnsupportedLanguage(target.clone());
     }
     status_error(status)
 }
@@ -375,6 +439,61 @@ mod tests {
     }
 
     #[test]
+    fn bad_request_with_api_key_invalid_in_details_is_authentication() {
+        let body = json!({
+            "error": {
+                "code": 400,
+                "message": "Request rejected.",
+                "status": "INVALID_ARGUMENT",
+                "details": [
+                    { "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                      "reason": "API_KEY_INVALID",
+                      "domain": "googleapis.com" }
+                ]
+            }
+        })
+        .to_string();
+        assert_eq!(
+            error_for_status(400, &body, &lang("th")),
+            ProviderError::Authentication
+        );
+    }
+
+    #[test]
+    fn api_key_invalid_outside_details_reason_is_not_authentication() {
+        // Only `error.details[].reason` and `error.message` count, never a
+        // raw search of the body.
+        let elsewhere = [
+            json!({ "error": { "code": 400, "message": "Required Text", "status": "API_KEY_INVALID" } }),
+            json!({ "error": { "code": 400, "message": "Required Text",
+                               "errors": [{ "reason": "API_KEY_INVALID" }] } }),
+            json!({ "note": "API key not valid", "error": { "code": 400, "message": "Required Text" } }),
+        ];
+        for body in elsewhere {
+            assert_eq!(
+                error_for_status(400, &body.to_string(), &lang("th")),
+                ProviderError::Network(NetworkReason::Status(400)),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_json_on_a_bad_request_keeps_the_status() {
+        for body in [
+            "API_KEY_INVALID",
+            "{\"error\": {\"message\": \"API key not valid\"",
+            "<html>Bad language pair</html>",
+        ] {
+            assert_eq!(
+                error_for_status(400, body, &lang("th")),
+                ProviderError::Network(NetworkReason::Status(400)),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
     fn other_bad_requests_keep_the_status() {
         for body in [
             google_error("Required Text", "required"),
@@ -464,6 +583,107 @@ mod tests {
             "http://user:{FAKE_KEY}@proxy"
         )));
         assert!(!format!("{error} {error:?}").contains(FAKE_KEY));
+    }
+
+    // --- reading the response -----------------------------------------------------
+
+    /// A body that must never be read.
+    struct UnreadBody;
+
+    impl Read for UnreadBody {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            panic!("the body must not be read for this status");
+        }
+    }
+
+    /// A body whose every read fails with the error `make` builds.
+    struct FailingBody(fn() -> std::io::Error);
+
+    impl Read for FailingBody {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err((self.0)())
+        }
+    }
+
+    const OK_BODY: &str =
+        r#"{"data":{"translations":[{"translatedText":"สวัสดี","detectedSourceLanguage":"en"}]}}"#;
+
+    #[test]
+    fn a_200_body_is_read_and_parsed() {
+        let translation = read_response(200, &mut OK_BODY.as_bytes(), &lang("th")).unwrap();
+        assert_eq!(translation.text, "สวัสดี");
+    }
+
+    #[test]
+    fn a_400_body_is_read_to_classify_it() {
+        let body = google_error("Bad language pair: en|tlh", "badRequest");
+        assert_eq!(
+            read_response(400, &mut body.as_bytes(), &lang("tlh")).unwrap_err(),
+            ProviderError::UnsupportedLanguage(lang("tlh"))
+        );
+    }
+
+    #[test]
+    fn other_statuses_do_not_read_the_body() {
+        for (status, expected) in [
+            (401, ProviderError::Authentication),
+            (403, ProviderError::Authentication),
+            (429, ProviderError::RateLimited),
+            (404, ProviderError::Network(NetworkReason::Status(404))),
+            (500, ProviderError::Network(NetworkReason::Status(500))),
+            (302, ProviderError::Network(NetworkReason::Status(302))),
+        ] {
+            assert_eq!(
+                read_response(status, &mut UnreadBody, &lang("th")).unwrap_err(),
+                expected,
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn body_read_failures_use_the_transport_mapping_not_the_status() {
+        fn timed_out() -> std::io::Error {
+            std::io::Error::from(ErrorKind::TimedOut)
+        }
+        fn ureq_timeout() -> std::io::Error {
+            // How ureq's body reader reports its own timeout.
+            ureq::Error::Timeout(ureq::Timeout::Global).into_io()
+        }
+        fn reset() -> std::io::Error {
+            std::io::Error::from(ErrorKind::ConnectionReset)
+        }
+        for status in [200, 400] {
+            for (make, reason) in [
+                (timed_out as fn() -> std::io::Error, NetworkReason::Timeout),
+                (ureq_timeout, NetworkReason::Timeout),
+                (reset, NetworkReason::Connect),
+            ] {
+                assert_eq!(
+                    read_response(status, &mut FailingBody(make), &lang("th")).unwrap_err(),
+                    ProviderError::Network(reason),
+                    "{status}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_200_body_that_is_not_utf8_is_invalid_response() {
+        let bytes: &[u8] = &[0xff, 0xfe, 0xfd];
+        assert_eq!(
+            read_response(200, &mut &bytes[..], &lang("th")).unwrap_err(),
+            ProviderError::InvalidResponse
+        );
+    }
+
+    // --- logging ----------------------------------------------------------------------
+
+    #[test]
+    fn trace_logging_is_compiled_out() {
+        // ureq-proto logs raw request headers and bodies at TRACE, which
+        // would leak the API key and the source text to any TRACE logger.
+        assert!(log::STATIC_MAX_LEVEL <= log::LevelFilter::Debug);
     }
 
     // --- the Provider itself ------------------------------------------------------

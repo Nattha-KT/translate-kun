@@ -10,15 +10,24 @@ fn no_env(_name: &str) -> Option<String> {
     None
 }
 
+/// Write a User Config as `0600`: credentials are only read from a private file.
+fn write_private(path: &std::path::Path, text: &str) {
+    std::fs::write(path, text).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
 #[test]
 fn a_key_in_the_user_config_is_found_when_env_and_store_are_empty() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
-    std::fs::write(
+    write_private(
         &path,
-        format!("target = \"th\"\n[credentials]\ngoogle_api_key = \"{FAKE_KEY}\"\n"),
-    )
-    .unwrap();
+        &format!("target = \"th\"\n[credentials]\ngoogle_api_key = \"{FAKE_KEY}\"\n"),
+    );
     let user = load_user_config(&path).unwrap();
 
     let found = resolve_credential(
@@ -44,7 +53,7 @@ fn a_key_in_the_user_config_is_found_when_env_and_store_are_empty() {
 fn the_store_beats_the_user_config() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
-    std::fs::write(&path, "[credentials]\nanthropic_api_key = \"file-FAKE\"\n").unwrap();
+    write_private(&path, "[credentials]\nanthropic_api_key = \"file-FAKE\"\n");
     let user = load_user_config(&path).unwrap();
 
     let mut store = MemoryStore::new();

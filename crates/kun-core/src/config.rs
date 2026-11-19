@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
@@ -131,6 +132,11 @@ impl FileCredentials {
         };
         value.as_ref().map(|text| Secret::new(text.clone()))
     }
+
+    /// True when the table sets no key at all.
+    fn is_empty(&self) -> bool {
+        self.google_api_key.is_none() && self.anthropic_api_key.is_none()
+    }
 }
 
 impl fmt::Debug for FileCredentials {
@@ -159,6 +165,10 @@ pub struct FileConfig {
     pub providers: HashMap<ProviderName, ProviderSettings>,
     /// User Config only. Always empty in a Project Config.
     pub credentials: FileCredentials,
+    /// True when the User Config had a `[credentials]` value but the file is
+    /// readable by group or others, so the values were dropped (§6). The CLI
+    /// uses this to warn.
+    pub credentials_ignored_insecure: bool,
 }
 
 impl fmt::Debug for FileConfig {
@@ -174,6 +184,10 @@ impl fmt::Debug for FileConfig {
             .field("secret_guard", &self.secret_guard)
             .field("providers", &self.providers)
             .field("credentials", &Redacted)
+            .field(
+                "credentials_ignored_insecure",
+                &self.credentials_ignored_insecure,
+            )
             .finish()
     }
 }
@@ -415,6 +429,7 @@ fn validate(path: &Path, raw: RawConfig) -> Result<FileConfig, ConfigError> {
         secret_guard: raw.secret_guard,
         providers: raw.providers,
         credentials: raw.credentials,
+        credentials_ignored_insecure: false,
     })
 }
 
@@ -474,8 +489,53 @@ pub fn load_project_config(path: &Path) -> Result<FileConfig, ConfigError> {
 }
 
 /// Read and validate a User Config.
+///
+/// `[credentials]` values are used only when the file is `0600` or stricter.
+/// Otherwise they are dropped and `credentials_ignored_insecure` is set, so
+/// the CLI can warn (requirements §6). The permission is checked on the same
+/// open file that is read, so the file cannot be swapped between the check
+/// and the read.
 pub fn load_user_config(path: &Path) -> Result<FileConfig, ConfigError> {
-    parse_user_config(path, &read_file(path)?)
+    let io_error = |source| ConfigError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
+    let mut file = std::fs::File::open(path).map_err(io_error)?;
+    let private = is_private_handle(&file);
+    let mut text = String::new();
+    file.read_to_string(&mut text).map_err(io_error)?;
+
+    let mut config = parse_user_config(path, &text)?;
+    if !private && !config.credentials.is_empty() {
+        config.credentials = FileCredentials::default();
+        config.credentials_ignored_insecure = true;
+    }
+    Ok(config)
+}
+
+/// True when a mode grants nothing beyond `0o600`.
+#[cfg(unix)]
+fn mode_is_private(mode: u32) -> bool {
+    // `0o177` = every permission bit that 0600 does not grant.
+    mode & 0o177 == 0
+}
+
+/// Whether an open file is `0600` or stricter (`fstat` on the handle).
+/// A file that cannot be inspected counts as not private.
+#[cfg(unix)]
+fn is_private_handle(file: &std::fs::File) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    match file.metadata() {
+        Ok(metadata) => mode_is_private(metadata.permissions().mode()),
+        Err(_) => false,
+    }
+}
+
+/// Outside Unix there are no mode bits to check; the file is trusted.
+#[cfg(not(unix))]
+fn is_private_handle(_file: &std::fs::File) -> bool {
+    true
 }
 
 /// True when the file mode is `0o600` or stricter. Unix only.
@@ -486,8 +546,7 @@ pub fn is_private_file(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
 
     match std::fs::metadata(path) {
-        // `0o177` = every permission bit that 0600 does not grant.
-        Ok(metadata) => metadata.permissions().mode() & 0o177 == 0,
+        Ok(metadata) => mode_is_private(metadata.permissions().mode()),
         Err(_) => false,
     }
 }
@@ -1007,6 +1066,7 @@ model = "claude-haiku-5-5"
             },
             providers,
             credentials: FileCredentials::default(),
+            credentials_ignored_insecure: false,
         };
         let effective = merge(&Overrides::default(), Some(&file), Some(&file));
 
@@ -1225,6 +1285,64 @@ model = "claude-haiku-5-5"
         let file = dir.path().join("config.toml");
         std::fs::write(&file, "[secret_guard]\nallow_secrets = true").unwrap();
         assert!(load_user_config(&file).unwrap().secret_guard.allow_secrets);
+    }
+
+    /// Write a User Config with this text and file mode.
+    #[cfg(unix)]
+    fn user_config_with_mode(dir: &Path, text: &str, mode: u32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let file = dir.join("config.toml");
+        std::fs::write(&file, text).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+        file
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn credentials_in_a_readable_user_config_are_ignored_and_flagged() {
+        let text = format!("target = \"th\"\n[credentials]\ngoogle_api_key = \"{FAKE_KEY}\"");
+        for mode in [0o644, 0o640, 0o604, 0o660] {
+            let dir = tempfile::tempdir().unwrap();
+            let file = user_config_with_mode(dir.path(), &text, mode);
+
+            let config = load_user_config(&file).unwrap();
+
+            assert!(
+                config.credentials.api_key(ProviderName::Google).is_none(),
+                "mode {mode:o}"
+            );
+            assert!(config.credentials_ignored_insecure, "mode {mode:o}");
+            // The rest of the file still applies.
+            assert_eq!(config.target, Some(lang("th")));
+            assert!(!format!("{config:?}").contains(FAKE_KEY));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn credentials_in_a_private_user_config_are_used() {
+        let text = format!("[credentials]\ngoogle_api_key = \"{FAKE_KEY}\"");
+        for mode in [0o600, 0o400] {
+            let dir = tempfile::tempdir().unwrap();
+            let file = user_config_with_mode(dir.path(), &text, mode);
+
+            let config = load_user_config(&file).unwrap();
+
+            let key = config.credentials.api_key(ProviderName::Google).unwrap();
+            assert_eq!(key.expose(), FAKE_KEY, "mode {mode:o}");
+            assert!(!config.credentials_ignored_insecure, "mode {mode:o}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_readable_user_config_without_credentials_is_not_flagged() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = user_config_with_mode(dir.path(), "target = \"th\"", 0o644);
+        let config = load_user_config(&file).unwrap();
+        assert!(!config.credentials_ignored_insecure);
+        assert_eq!(config.target, Some(lang("th")));
     }
 
     #[test]

@@ -989,6 +989,7 @@ name = "kun-core"
 version = "0.1.0"
 dependencies = [
  "keyring",
+ "log",
  "regex",
  "serde",
  "serde_json",
