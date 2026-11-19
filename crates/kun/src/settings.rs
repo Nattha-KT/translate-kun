@@ -7,7 +7,7 @@ use kun_core::config::{
     load_user_config, merge, user_config_path,
 };
 
-use crate::error::CliError;
+use crate::error::{CliError, ConfigFile};
 
 /// The merged settings, plus warnings for the caller to print on stderr.
 pub struct Loaded {
@@ -29,7 +29,9 @@ pub fn load_settings(
     let mut warnings = Vec::new();
 
     let project = match find_project_config(start_dir) {
-        Some(path) => Some(load_project_config(&path).map_err(CliError::Config)?),
+        Some(path) => Some(
+            load_project_config(&path).map_err(|e| CliError::config(ConfigFile::Project, &e))?,
+        ),
         None => None,
     };
     let user = load_user(home, xdg_config_home, &mut warnings)?;
@@ -57,7 +59,9 @@ fn load_user(
             path.display()
         ));
     }
-    load_user_config(&path).map(Some).map_err(CliError::Config)
+    load_user_config(&path)
+        .map(Some)
+        .map_err(|e| CliError::config(ConfigFile::User, &e))
 }
 
 #[cfg(unix)]

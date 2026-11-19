@@ -10,6 +10,61 @@ use kun_core::provider::ProviderError;
 use kun_core::secret_guard::{Finding, SecretGuardError};
 use kun_core::translate::TranslateError;
 
+/// Which config file a problem is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigFile {
+    Project,
+    User,
+}
+
+impl fmt::Display for ConfigFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConfigFile::Project => f.write_str("Project Config (.kun.toml)"),
+            ConfigFile::User => f.write_str("User Config (config.toml)"),
+        }
+    }
+}
+
+/// What is wrong with a config file, as a fixed category.
+///
+/// A `field` is always one of the names in `KNOWN_FIELDS` (`'static`), never
+/// text from the file: key names and file paths are chosen by the user (or by
+/// whoever wrote the repository) and could hold a pasted secret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigProblem {
+    /// The file could not be read.
+    Unreadable,
+    /// The file is not valid TOML, or has a key or value of the wrong shape.
+    Unparsable,
+    /// A Project Config holds a setting it may not hold (ADR 0003).
+    /// `None` = an unknown or credential-like key.
+    Forbidden { field: Option<&'static str> },
+    /// A setting has a value that is not allowed.
+    InvalidValue { field: Option<&'static str> },
+}
+
+/// The only key names that may appear in an error message.
+const KNOWN_FIELDS: [&str; 12] = [
+    "target",
+    "pair",
+    "provider",
+    "max_chars",
+    "timeout_secs",
+    "style",
+    "protected_terms",
+    "endpoint",
+    "secret_guard.allow_secrets",
+    "providers.google.endpoint",
+    "providers.anthropic.endpoint",
+    "secret_guard.extra_patterns",
+];
+
+/// `key` as a `'static` name if it is one of the schema's own keys.
+fn known_field(key: &str) -> Option<&'static str> {
+    KNOWN_FIELDS.into_iter().find(|known| *known == key)
+}
+
 #[derive(Debug)]
 pub enum CliError {
     /// Bad arguments or input. The message is fixed text written in `kun`.
@@ -17,7 +72,10 @@ pub enum CliError {
     /// There is no text to translate. `main` prints the help.
     NoText,
     /// A config file could not be used.
-    Config(ConfigError),
+    Config {
+        file: ConfigFile,
+        problem: ConfigProblem,
+    },
     /// An extra Secret Guard pattern from a config file is not a valid regex.
     ExtraPattern(SecretGuardError),
     /// The Provider failed (including missing credentials).
@@ -35,11 +93,27 @@ pub enum CliError {
 }
 
 impl CliError {
+    /// Turns a `kun-core` config error into a fixed category. The error's own
+    /// message (which holds paths and key names) is dropped on purpose.
+    pub fn config(file: ConfigFile, error: &ConfigError) -> Self {
+        let problem = match error {
+            ConfigError::Io { .. } => ConfigProblem::Unreadable,
+            ConfigError::Parse { .. } => ConfigProblem::Unparsable,
+            ConfigError::ForbiddenInProjectConfig { key, .. } => ConfigProblem::Forbidden {
+                field: known_field(key),
+            },
+            ConfigError::Invalid { key, .. } => ConfigProblem::InvalidValue {
+                field: known_field(key),
+            },
+        };
+        CliError::Config { file, problem }
+    }
+
     /// The process exit code. The only place where errors become codes.
     pub fn exit_code(&self) -> u8 {
         match self {
             CliError::Usage(_) | CliError::NoText => 2,
-            CliError::Config(_) | CliError::ExtraPattern(_) => 3,
+            CliError::Config { .. } | CliError::ExtraPattern(_) => 3,
             CliError::Provider(ProviderError::MissingCredentials) => 4,
             CliError::Provider(_) => 5,
             CliError::SecretBlocked(_) | CliError::SecretDeclined => 6,
@@ -65,17 +139,30 @@ impl fmt::Display for CliError {
         match self {
             CliError::Usage(message) | CliError::Unexpected(message) => f.write_str(message),
             CliError::NoText => f.write_str("no text to translate"),
-            CliError::Config(error) => {
-                write!(f, "{error}")?;
-                // Walk the sources (for example the OS reason for a failed read).
-                // Config errors never contain config values.
-                let mut source = std::error::Error::source(error);
-                while let Some(cause) = source {
-                    write!(f, ": {cause}")?;
-                    source = cause.source();
+            CliError::Config { file, problem } => match problem {
+                ConfigProblem::Unreadable => write!(f, "cannot read the {file}"),
+                ConfigProblem::Unparsable => write!(
+                    f,
+                    "cannot parse the {file}: it is not valid TOML, or has an unknown key \
+                     or a value of the wrong type"
+                ),
+                ConfigProblem::Forbidden { field: Some(field) } => write!(
+                    f,
+                    "the {file} sets `{field}`, which is not allowed there \
+                     (credentials, endpoints and allow_secrets belong in the User Config)"
+                ),
+                ConfigProblem::Forbidden { field: None } => write!(
+                    f,
+                    "the {file} has a key that is not allowed there \
+                     (an unknown or credential-like key)"
+                ),
+                ConfigProblem::InvalidValue { field: Some(field) } => {
+                    write!(f, "invalid value for `{field}` in the {file}")
                 }
-                Ok(())
-            }
+                ConfigProblem::InvalidValue { field: None } => {
+                    write!(f, "invalid value for a setting in the {file}")
+                }
+            },
             CliError::ExtraPattern(error) => write!(f, "{error}"),
             CliError::Provider(error) => match error {
                 ProviderError::MissingCredentials => f.write_str(
@@ -120,9 +207,12 @@ mod tests {
             (CliError::Usage("x"), 2),
             (CliError::NoText, 2),
             (
-                CliError::Config(ConfigError::Parse {
-                    path: "a.toml".into(),
-                }),
+                CliError::config(
+                    ConfigFile::User,
+                    &ConfigError::Parse {
+                        path: "a.toml".into(),
+                    },
+                ),
                 3,
             ),
             (
@@ -150,6 +240,81 @@ mod tests {
         let from_provider =
             CliError::from(TranslateError::Provider(ProviderError::MissingCredentials));
         assert_eq!(from_provider.exit_code(), 4);
+    }
+
+    const FAKE: &str = "AKIAFAKEEXAMPLE12345";
+
+    /// Every way to print an error: Display, `{:?}` and `{:#?}`.
+    fn all_forms(error: &CliError) -> [String; 3] {
+        [
+            error.to_string(),
+            format!("{error:?}"),
+            format!("{error:#?}"),
+        ]
+    }
+
+    fn hostile_config_errors() -> Vec<ConfigError> {
+        let path = std::path::PathBuf::from(format!("/work/{FAKE}/.kun.toml"));
+        vec![
+            ConfigError::ForbiddenInProjectConfig {
+                path: path.clone(),
+                key: format!("secret_{FAKE}"),
+            },
+            ConfigError::ForbiddenInProjectConfig {
+                path: path.clone(),
+                key: format!("providers.{FAKE}.token"),
+            },
+            ConfigError::Invalid {
+                path: path.clone(),
+                key: FAKE.to_string(),
+            },
+            ConfigError::Parse { path: path.clone() },
+            ConfigError::Io {
+                path,
+                source: std::io::Error::other(FAKE),
+            },
+        ]
+    }
+
+    #[test]
+    fn config_errors_never_show_key_names_or_paths() {
+        for config_error in hostile_config_errors() {
+            for file in [ConfigFile::Project, ConfigFile::User] {
+                let error = CliError::config(file, &config_error);
+                assert_eq!(error.exit_code(), 3);
+                for shown in all_forms(&error) {
+                    assert!(!shown.contains(FAKE), "leaked in: {shown}");
+                    assert!(!shown.contains("/work/"), "path leaked in: {shown}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn config_errors_name_the_file_and_the_known_field() {
+        let known = ConfigError::ForbiddenInProjectConfig {
+            path: "x".into(),
+            key: "secret_guard.allow_secrets".to_string(),
+        };
+        let error = CliError::config(ConfigFile::Project, &known);
+        assert!(error.to_string().contains("Project Config"));
+        assert!(error.to_string().contains("secret_guard.allow_secrets"));
+
+        let unknown = ConfigError::ForbiddenInProjectConfig {
+            path: "x".into(),
+            key: "api_key".to_string(),
+        };
+        let error = CliError::config(ConfigFile::Project, &unknown);
+        assert!(error.to_string().contains("unknown or credential-like key"));
+        assert!(!error.to_string().contains("api_key"));
+
+        let invalid = ConfigError::Invalid {
+            path: "x".into(),
+            key: "max_chars".to_string(),
+        };
+        let error = CliError::config(ConfigFile::User, &invalid);
+        assert!(error.to_string().contains("User Config"));
+        assert!(error.to_string().contains("max_chars"));
     }
 
     #[test]

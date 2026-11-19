@@ -83,19 +83,39 @@ pub fn is_yes(answer: &str) -> bool {
 /// question works even when stdin is redirected. If the terminal cannot be
 /// opened or read, the answer is no.
 pub fn ask_on_terminal(findings: &[Finding]) -> bool {
-    let mut stderr = std::io::stderr();
-    let _ = write!(
-        stderr,
+    ask(findings, &mut std::io::stderr(), &|| {
+        let tty = std::fs::File::open("/dev/tty")?;
+        Ok(Box::new(BufReader::new(tty)))
+    })
+}
+
+/// Opens the place the answer is read from (the terminal).
+type OpenAnswerSource<'a> = &'a dyn Fn() -> std::io::Result<Box<dyn BufRead>>;
+
+/// The prompt, with its output and its input passed in so tests need no terminal.
+///
+/// If the question cannot be shown (the write or the flush fails), nobody
+/// can have answered it: the result is no, and the answer is not even read.
+fn ask(
+    findings: &[Finding],
+    prompt_out: &mut dyn Write,
+    open_answer_source: OpenAnswerSource,
+) -> bool {
+    let shown = write!(
+        prompt_out,
         "Possible secret detected ({}). Send anyway? [y/N] ",
         kinds_summary(findings)
-    );
-    let _ = stderr.flush();
+    )
+    .and_then(|()| prompt_out.flush());
+    if shown.is_err() {
+        return false;
+    }
 
-    let Ok(tty) = std::fs::File::open("/dev/tty") else {
+    let Ok(mut source) = open_answer_source() else {
         return false;
     };
     let mut answer = String::new();
-    if BufReader::new(tty).read_line(&mut answer).is_err() {
+    if source.read_line(&mut answer).is_err() {
         return false;
     }
     is_yes(&answer)
@@ -194,6 +214,74 @@ mod tests {
             .unwrap();
         assert_eq!(error.exit_code(), 3);
         assert!(!error.to_string().contains("unclosed"));
+    }
+
+    fn findings() -> Vec<Finding> {
+        SecretGuard::new(&[]).unwrap().scan(KEY)
+    }
+
+    /// A reader over fixed bytes, as the "terminal".
+    fn answers(text: &'static str) -> impl Fn() -> std::io::Result<Box<dyn BufRead>> {
+        move || Ok(Box::new(std::io::Cursor::new(text.as_bytes())))
+    }
+
+    /// Fails the test if the answer source is opened.
+    fn must_not_be_opened() -> std::io::Result<Box<dyn BufRead>> {
+        panic!("the terminal must not be read when the prompt was not shown");
+    }
+
+    struct FailingWrite;
+
+    impl Write for FailingWrite {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("closed"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct FailingFlush;
+
+    impl Write for FailingFlush {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("closed"))
+        }
+    }
+
+    #[test]
+    fn prompt_shows_the_kinds_and_reads_the_answer() {
+        let mut shown = Vec::new();
+        assert!(ask(&findings(), &mut shown, &answers("y\n")));
+        let shown = String::from_utf8(shown).unwrap();
+        assert_eq!(
+            shown,
+            "Possible secret detected (AWS access key). Send anyway? [y/N] "
+        );
+        assert!(!shown.contains(KEY));
+
+        assert!(!ask(&findings(), &mut Vec::new(), &answers("n\n")));
+        assert!(!ask(&findings(), &mut Vec::new(), &answers("")));
+    }
+
+    #[test]
+    fn a_failed_prompt_write_means_no_and_reads_nothing() {
+        assert!(!ask(&findings(), &mut FailingWrite, &must_not_be_opened));
+    }
+
+    #[test]
+    fn a_failed_prompt_flush_means_no_and_reads_nothing() {
+        assert!(!ask(&findings(), &mut FailingFlush, &must_not_be_opened));
+    }
+
+    #[test]
+    fn an_unavailable_terminal_means_no() {
+        let unavailable =
+            || -> std::io::Result<Box<dyn BufRead>> { Err(std::io::Error::other("no tty")) };
+        assert!(!ask(&findings(), &mut Vec::new(), &unavailable));
     }
 
     #[test]

@@ -54,6 +54,38 @@ pub struct Cli {
     pub words: Vec<String>,
 }
 
+/// A fixed message for a command-line parsing error.
+///
+/// clap's own message repeats the offending value (`invalid value 'xyz' for
+/// '--target'`), and a user may have pasted a secret there. This text is
+/// built from the error kind and the option's name only, never from a value.
+pub fn describe_parse_error(error: &clap::Error) -> String {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+
+    let option_name = match error.get(ContextKind::InvalidArg) {
+        Some(ContextValue::String(name)) => Some(name.as_str()),
+        _ => None,
+    };
+    let problem = match (error.kind(), option_name) {
+        // For these kinds the context holds the option as declared
+        // (for example `--target <LANG>`), not what the user typed.
+        (ErrorKind::InvalidValue | ErrorKind::ValueValidation, Some(name)) => {
+            format!("invalid or missing value for `{name}`")
+        }
+        (ErrorKind::InvalidValue | ErrorKind::ValueValidation, None) => {
+            "invalid or missing value for an option".to_string()
+        }
+        // The context would hold the unknown argument as typed: leave it out.
+        (ErrorKind::UnknownArgument, _) => {
+            "unknown option (to translate text that starts with `-`, put `--` before it)"
+                .to_string()
+        }
+        (ErrorKind::InvalidUtf8, _) => "arguments must be valid UTF-8".to_string(),
+        _ => "invalid arguments".to_string(),
+    };
+    format!("{problem}\n\nFor more information, try 'kun --help'.")
+}
+
 fn parse_max_chars(value: &str) -> Result<usize, String> {
     match value.parse::<usize>() {
         Ok(number) if number >= 1 => Ok(number),
@@ -177,6 +209,38 @@ mod tests {
         assert!(parsed.spec.is_some());
         assert_eq!(parsed.text, None);
         assert_eq!(split_positionals(&[]).text, None);
+    }
+
+    #[test]
+    fn parse_error_descriptions_never_repeat_typed_values() {
+        use clap::Parser;
+
+        let fake = "AKIAFAKEEXAMPLE12345";
+        let cases: Vec<Vec<String>> = vec![
+            vec!["kun".into(), "-t".into(), fake.into()],
+            vec!["kun".into(), "-s".into(), fake.into()],
+            vec!["kun".into(), format!("--max-chars={fake}")],
+            vec!["kun".into(), format!("--{fake}")],
+            vec!["kun".into(), format!("-{fake}")],
+        ];
+        for args in cases {
+            let error = Cli::try_parse_from(&args)
+                .err()
+                .expect("these arguments must be rejected");
+            let message = describe_parse_error(&error);
+            assert!(!message.contains(fake), "leaked: {message}");
+            assert!(message.contains("kun --help"));
+        }
+    }
+
+    #[test]
+    fn parse_error_description_names_the_option() {
+        use clap::Parser;
+
+        let error = Cli::try_parse_from(["kun", "--max-chars", "x"])
+            .err()
+            .unwrap();
+        assert!(describe_parse_error(&error).contains("--max-chars"));
     }
 
     #[test]

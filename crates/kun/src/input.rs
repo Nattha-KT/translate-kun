@@ -1,26 +1,23 @@
 //! Where the text comes from: the arguments, or stdin (requirements §3).
 
 use std::io::{self, IsTerminal, Read};
-use std::sync::mpsc;
-use std::time::Duration;
 
 use crate::error::CliError;
 
 /// The text to translate. No `Debug`: it is user text.
 pub struct Input {
     pub text: String,
-    /// Text was given as arguments and stdin held data too (the arguments won).
+    /// Text was given as arguments while stdin is not a terminal (it was
+    /// piped or redirected). Stdin is not read; the caller prints a warning.
     pub ignored_stdin: bool,
 }
 
-/// How long to wait to find out whether stdin holds data when the text was
-/// also given as arguments. Only matters for a pipe that stays open and idle.
-const STDIN_PEEK_TIMEOUT: Duration = Duration::from_millis(200);
-
 /// Reads the input.
 ///
-/// - Text arguments win. If stdin is not a terminal and holds data, that is
-///   reported through `ignored_stdin` so the caller can warn.
+/// - Text arguments win, and stdin is never read in that case. If stdin is
+///   not a terminal, `ignored_stdin` is set so the caller can warn. This is
+///   decided by what stdin *is*, not by what it holds: checking for data
+///   would need a timing guess that a slow producer defeats.
 /// - Without arguments, stdin is read when it is not a terminal.
 /// - With neither, the text is empty (the caller prints the help).
 ///
@@ -31,7 +28,7 @@ pub fn read_input(args_text: Option<String>, max_chars: usize) -> Result<Input, 
     match args_text {
         Some(text) => Ok(Input {
             text,
-            ignored_stdin: !stdin_is_terminal && stdin_has_data(),
+            ignored_stdin: !stdin_is_terminal,
         }),
         None if stdin_is_terminal => Ok(Input {
             text: String::new(),
@@ -62,20 +59,4 @@ fn read_stdin(max_chars: usize) -> Result<String, CliError> {
         return Err(CliError::TooLarge { limit: max_chars });
     }
     String::from_utf8(bytes).map_err(|_| CliError::Usage("standard input is not valid UTF-8"))
-}
-
-/// True if stdin has at least one byte before EOF.
-///
-/// A plain `read` would hang forever on a pipe that is open but silent, so it
-/// runs on another thread and we give up after a short wait. The thread is
-/// left behind when we give up; the process exits soon after anyway.
-fn stdin_has_data() -> bool {
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut byte = [0u8; 1];
-        let has_data = matches!(io::stdin().read(&mut byte), Ok(count) if count > 0);
-        // The receiver may be gone already; that is fine.
-        let _ = sender.send(has_data);
-    });
-    receiver.recv_timeout(STDIN_PEEK_TIMEOUT).unwrap_or(false)
 }

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use kun_core::config::Overrides;
 use kun_core::language::LanguageCode;
-use kun_core::translate::{resolve_target, translate};
+use kun_core::translate::{TargetPlan, TranslateError, resolve_target, translate};
 
 use crate::args::{Cli, LanguageSpec, split_positionals};
 use crate::error::CliError;
@@ -55,23 +55,32 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
     // 3. Input, and the size limit (characters, not bytes).
     let input = read_input(positionals.text, config.max_chars)?;
     if input.ignored_stdin {
-        eprintln!("warning: text was given as arguments and on stdin; using the arguments");
+        eprintln!(
+            "warning: text was given as arguments and stdin is not a terminal; \
+             ignoring stdin and using the arguments"
+        );
     }
-    if input.text.trim().is_empty() {
-        return Err(CliError::NoText);
-    }
+    // The limit comes first: whitespace-only text that is too long is "too
+    // large" (7), not "no text" (2).
     if input.text.chars().count() > config.max_chars {
         return Err(CliError::TooLarge {
             limit: config.max_chars,
         });
     }
+    if input.text.trim().is_empty() {
+        return Err(CliError::NoText);
+    }
 
-    // 4. Target Language. Checked before anything is sent or asked.
+    // 4. Target Language. Without one this is a usage error, reported before
+    //    the Secret Guard runs or a Provider is built.
     let plan = resolve_target(
         explicit_target.as_ref(),
         config.pair.as_ref(),
         config.target.as_ref(),
     );
+    if plan == TargetPlan::Missing {
+        return Err(TranslateError::NoTarget.into());
+    }
 
     // 5. Secret Guard. Interactive means a person can answer the prompt:
     //    piped stdin is never interactive.

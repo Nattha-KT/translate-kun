@@ -50,6 +50,19 @@ impl Sandbox {
         }
     }
 
+    /// A plain `std::process::Command` for `kun` with the sandbox environment,
+    /// for tests that need to spawn it and feed stdin slowly.
+    pub fn std_command(&self) -> std::process::Command {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_kun"));
+        command
+            .env("HOME", self.home.path())
+            .env("XDG_CONFIG_HOME", self.xdg.path())
+            .env_remove("KUN_GOOGLE_API_KEY")
+            .env_remove("ANTHROPIC_API_KEY")
+            .current_dir(self.work.path());
+        command
+    }
+
     /// A `kun` command with the sandbox environment. Stdin is empty unless
     /// the test calls `write_stdin`.
     pub fn kun(&self) -> Command {

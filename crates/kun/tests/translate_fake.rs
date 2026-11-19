@@ -122,13 +122,75 @@ fn arguments_win_over_stdin_with_a_warning() {
 }
 
 #[test]
-fn no_warning_when_only_arguments_are_given() {
+fn arguments_with_a_redirected_stdin_always_warn() {
+    // The rule is "stdin is not a terminal", not "stdin has data": the test
+    // harness gives an empty, non-terminal stdin, so the warning appears.
     Sandbox::new()
         .kun()
         .args(["--provider", "fake", ":th", "hello"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("using the arguments").not());
+        .stdout("[th] hello\n")
+        .stderr(predicate::str::contains("using the arguments"));
+}
+
+#[test]
+fn arguments_win_even_when_stdin_is_a_slow_producer() {
+    use std::io::Write;
+    use std::process::Stdio;
+    use std::time::Duration;
+
+    let sandbox = Sandbox::new();
+    let mut child = sandbox
+        .std_command()
+        .args(["--provider", "fake", ":th", "from args"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // `kun` must not wait for, or depend on, what arrives on stdin.
+    let mut stdin = child.stdin.take().unwrap();
+    std::thread::sleep(Duration::from_millis(700));
+    let _ = stdin.write_all(b"late data");
+    drop(stdin);
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "[th] from args\n");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("using the arguments"));
+}
+
+#[test]
+fn arguments_never_wait_for_an_open_stdin() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let sandbox = Sandbox::new();
+    let mut child = sandbox
+        .std_command()
+        .args(["--provider", "fake", ":th", "hello"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Keep stdin open and silent: a program that read it would hang here.
+    let _stdin = child.stdin.take().unwrap();
+
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(10) {
+            let _ = child.kill();
+            panic!("kun waited for stdin although the text was given as arguments");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]

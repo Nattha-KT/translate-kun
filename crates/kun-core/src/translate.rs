@@ -1,6 +1,8 @@
 //! Translation orchestration: choosing the Target Language (including the
 //! Language Pair rule) and calling a Provider. No terminal I/O.
 
+use std::fmt;
+
 use crate::config::LanguagePair;
 use crate::language::LanguageCode;
 use crate::provider::{Provider, ProviderError, Translation, TranslationRequest};
@@ -45,12 +47,25 @@ pub enum TranslateError {
 }
 
 /// A successful translation plus what the CLI should warn about.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Translated {
     pub translation: Translation,
     /// The Source Language equals the Target Language, so the input was
     /// returned unchanged (requirements §3). The CLI prints a warning.
     pub same_language: bool,
+}
+
+/// `Debug` hides the text: it is user input (or a translation of it) and may
+/// hold a secret. The other fields are not sensitive.
+impl fmt::Debug for Translated {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Translated")
+            .field("text", &"<redacted>")
+            .field("detected_source", &self.translation.detected_source)
+            .field("provider", &self.translation.provider)
+            .field("same_language", &self.same_language)
+            .finish()
+    }
 }
 
 /// Translates `text` following `plan`. See the S5 slice spec for the rules.
@@ -80,12 +95,7 @@ fn translate_to(
         return Ok(unchanged(provider, text, source));
     }
 
-    let request = TranslationRequest {
-        text: text.to_string(),
-        source,
-        target: target.clone(),
-    };
-    let translation = provider.translate(&request)?;
+    let translation = call_provider(provider, text, source, target.clone())?;
 
     if translation.detected_source.as_ref() == Some(&target) {
         return Ok(unchanged(provider, text, translation.detected_source));
@@ -96,8 +106,26 @@ fn translate_to(
     })
 }
 
+/// One Provider call, with nothing added.
+fn call_provider(
+    provider: &dyn Provider,
+    text: &str,
+    source: Option<LanguageCode>,
+    target: LanguageCode,
+) -> Result<Translation, ProviderError> {
+    provider.translate(&TranslationRequest {
+        text: text.to_string(),
+        source,
+        target,
+    })
+}
+
 /// The Language Pair rule (requirements §3): the first language is the
 /// default target, and text already in the first language goes to the second.
+///
+/// The Provider's results are returned as they are. The "already in the
+/// Target Language" rule is for a single Target Language only: with a pair,
+/// text in the first language is simply sent on to the second.
 fn translate_pair(
     provider: &dyn Provider,
     text: &str,
@@ -111,24 +139,37 @@ fn translate_pair(
         } else {
             pair.first().clone()
         };
-        return translate_to(provider, text, Some(source), target);
+        let translation = call_provider(provider, text, Some(source), target)?;
+        return Ok(Translated {
+            translation,
+            same_language: false,
+        });
     }
 
-    let first = translate_to(provider, text, None, pair.first().clone())?;
-    if first.translation.detected_source.as_ref() != Some(pair.first()) {
-        return Ok(first);
+    let first = call_provider(provider, text, None, pair.first().clone())?;
+    if first.detected_source.as_ref() != Some(pair.first()) {
+        return Ok(Translated {
+            translation: first,
+            same_language: false,
+        });
     }
 
     // The text is in the first language: translate again to the second one.
     // The source is already known, so the Provider does not detect it again.
-    let mut second = translate_to(
+    let mut second = call_provider(
         provider,
         text,
         Some(pair.first().clone()),
         pair.second().clone(),
     )?;
-    second.translation.detected_source = Some(pair.first().clone());
-    Ok(second)
+    // A Provider that was told the source may not report it: fill it in.
+    if second.detected_source.is_none() {
+        second.detected_source = Some(pair.first().clone());
+    }
+    Ok(Translated {
+        translation: second,
+        same_language: false,
+    })
 }
 
 /// The input returned as it is, for when no translation is needed.
@@ -213,6 +254,82 @@ mod tests {
             self.calls.set(self.calls.get() + 1);
             self.inner.translate(request)
         }
+    }
+
+    /// Always reports the Target Language it was asked for as the detected
+    /// source: the worst case for the same-language rule.
+    struct EchoTargetProvider;
+
+    impl Provider for EchoTargetProvider {
+        fn name(&self) -> &'static str {
+            "echo"
+        }
+
+        fn translate(&self, request: &TranslationRequest) -> Result<Translation, ProviderError> {
+            Ok(Translation {
+                text: format!("[{}] {}", request.target, request.text),
+                detected_source: Some(request.target.clone()),
+                provider: "echo",
+            })
+        }
+    }
+
+    #[test]
+    fn pair_returns_the_provider_results_directly() {
+        // The same-language rule is for a Fixed target only. On a Pair, what
+        // the Provider returns is what the user gets, with no "unchanged" flag.
+        let plan = TargetPlan::Pair(pair("en", "th"));
+
+        let result = translate(&EchoTargetProvider, "hello", None, plan.clone()).unwrap();
+        assert_eq!(result.translation.text, "[th] hello");
+        assert!(!result.same_language);
+
+        let result = translate(&EchoTargetProvider, "hello", Some(lang("en")), plan).unwrap();
+        assert_eq!(result.translation.text, "[th] hello");
+        assert!(!result.same_language);
+    }
+
+    #[test]
+    fn fixed_target_still_applies_the_same_language_rule() {
+        let result = translate(
+            &EchoTargetProvider,
+            "hello",
+            None,
+            TargetPlan::Fixed(lang("en")),
+        )
+        .unwrap();
+        assert_eq!(result.translation.text, "hello");
+        assert!(result.same_language);
+    }
+
+    #[test]
+    fn debug_output_never_shows_the_text() {
+        let secret = "FAKE-SECRET-TEXT-EXAMPLE-12345";
+        let translated = Translated {
+            translation: Translation {
+                text: secret.to_string(),
+                detected_source: Some(lang("en")),
+                provider: "fake",
+            },
+            same_language: true,
+        };
+        for shown in [format!("{translated:?}"), format!("{translated:#?}")] {
+            assert!(!shown.contains(secret), "leaked in: {shown}");
+            assert!(shown.contains("<redacted>"));
+            // The non-sensitive fields stay visible.
+            assert!(shown.contains("fake"));
+            assert!(shown.contains("same_language: true"));
+        }
+
+        let result = translate(
+            &FakeProvider::new(),
+            secret,
+            None,
+            TargetPlan::Fixed(lang("th")),
+        )
+        .unwrap();
+        assert!(!format!("{result:?}").contains(secret));
+        assert!(!format!("{result:#?}").contains(secret));
     }
 
     const THAI: &str = "สวัสดี";

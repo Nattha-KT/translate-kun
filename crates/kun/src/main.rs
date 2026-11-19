@@ -8,14 +8,31 @@ mod settings;
 
 use std::process::ExitCode;
 
+use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 
-use args::Cli;
+use args::{Cli, describe_parse_error};
 use error::CliError;
 
 fn main() -> ExitCode {
-    // clap handles --help and --version, and exits with code 2 on bad flags.
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            // --help and --version keep clap's own behaviour.
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayVersion
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            ) {
+                error.exit();
+            }
+            // Any other error: clap's message could repeat a value the user
+            // typed (maybe a secret), so print a fixed one instead.
+            eprintln!("error: {}", describe_parse_error(&error));
+            return ExitCode::from(2);
+        }
+    };
 
     match app::run(cli) {
         Ok(()) => ExitCode::SUCCESS,
