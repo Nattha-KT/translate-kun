@@ -82,6 +82,45 @@ fn auth_status_names_the_source_and_never_prints_a_key() {
 }
 
 #[test]
+fn auth_status_works_with_a_broken_project_config() {
+    let sandbox = Sandbox::new();
+    sandbox.write_project_config("this is [[[ not toml");
+    sandbox
+        .kun()
+        .args(["auth", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("google: none"));
+}
+
+#[cfg(unix)]
+#[test]
+fn auth_status_reports_ignored_credentials_of_an_insecure_user_config() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(&format!(
+        "[credentials]\ngoogle_api_key = \"{FAKE_API_KEY}\"\n"
+    ));
+    std::fs::set_permissions(
+        sandbox.user_config_path(),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+
+    sandbox
+        .kun()
+        .args(["auth", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "google: none (config file credentials ignored",
+        ))
+        .stdout(predicate::str::contains("EXAMPLE").not())
+        .stderr(predicate::str::contains("readable by others"));
+}
+
+#[test]
 fn auth_status_says_none_when_there_is_no_key() {
     Sandbox::new()
         .kun()

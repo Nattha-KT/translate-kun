@@ -51,26 +51,45 @@ const TEMPLATE: &str = r#"# kun Project Config. Commit this file to share settin
 /// Writes the template into `dir`. Without `force`, an existing file is never
 /// touched.
 pub fn init_in(dir: &Path, force: bool) -> Result<(), CliError> {
+    let write_failed = CliError::Unexpected("cannot write `.kun.toml` in the current directory");
     let path = dir.join(FILE_NAME);
-    let mut options = OpenOptions::new();
-    options.write(true);
-    if force {
-        options.create(true).truncate(true);
-    } else {
-        // Fails if the file exists, with no race between check and create.
-        options.create_new(true);
-    }
-    let mut file = options.open(&path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            CliError::Usage(
-                "`.kun.toml` already exists here; use `kun init --force` to overwrite it",
-            )
-        } else {
+
+    if !force {
+        // Fails if the file exists (even a dangling symlink), with no race
+        // between the check and the create.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    CliError::Usage(
+                        "`.kun.toml` already exists here; use `kun init --force` to overwrite it",
+                    )
+                } else {
+                    write_failed
+                }
+            })?;
+        return file.write_all(TEMPLATE.as_bytes()).map_err(|_| {
             CliError::Unexpected("cannot write `.kun.toml` in the current directory")
-        }
-    })?;
-    file.write_all(TEMPLATE.as_bytes())
-        .map_err(|_| CliError::Unexpected("cannot write `.kun.toml` in the current directory"))
+        });
+    }
+
+    // --force: write a temporary file next to it and rename it over
+    // `.kun.toml`. Renaming replaces a symlink itself, so the file the
+    // symlink points to is never overwritten.
+    let temp = dir.join(format!(".kun.toml.tmp-{}", std::process::id()));
+    let result = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .and_then(|mut file| file.write_all(TEMPLATE.as_bytes()))
+        .and_then(|()| std::fs::rename(&temp, &path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return Err(write_failed);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -87,6 +106,33 @@ mod tests {
 
         let error = init_in(dir.path(), false).unwrap_err();
         assert_eq!(error.exit_code(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn force_replaces_a_symlink_instead_of_writing_through_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("dotfiles-original");
+        std::fs::write(&other, "precious").unwrap();
+        let link = dir.path().join(".kun.toml");
+        std::os::unix::fs::symlink(&other, &link).unwrap();
+
+        init_in(dir.path(), true).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), "precious");
+        assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), TEMPLATE);
+    }
+
+    #[test]
+    fn force_leaves_no_temporary_file_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        init_in(dir.path(), true).unwrap();
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from(".kun.toml")]);
     }
 
     #[test]

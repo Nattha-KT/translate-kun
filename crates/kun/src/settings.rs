@@ -48,6 +48,32 @@ pub fn load_settings(
     })
 }
 
+/// What `kun auth status` needs from the User Config.
+pub struct UserCredentials {
+    pub credentials: Option<FileCredentials>,
+    /// The file has `[credentials]` but is readable by others, so they were dropped.
+    pub ignored_insecure: bool,
+    pub warnings: Vec<String>,
+}
+
+/// Loads only the User Config (never the Project Config), so a broken
+/// `.kun.toml` cannot stop `kun auth`.
+pub fn load_user_credentials(
+    home: Option<&Path>,
+    xdg_config_home: Option<&Path>,
+) -> Result<UserCredentials, CliError> {
+    let mut warnings = Vec::new();
+    let user = load_user(home, xdg_config_home, &mut warnings)?;
+    let ignored_insecure = user
+        .as_ref()
+        .is_some_and(|file| file.credentials_ignored_insecure);
+    Ok(UserCredentials {
+        credentials: user.map(|file| file.credentials),
+        ignored_insecure,
+        warnings,
+    })
+}
+
 /// The User Config, or `None` when there is no file. A file that exists but
 /// cannot be used is an error.
 fn load_user(

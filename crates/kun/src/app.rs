@@ -16,7 +16,7 @@ use crate::init::init_in;
 use crate::input::read_input;
 use crate::json_output::{JsonOutput, SCHEMA_VERSION};
 use crate::providers::{CredentialSources, build_provider, parse_provider_flag, provider_label};
-use crate::settings::{Loaded, load_settings};
+use crate::settings::{Loaded, load_settings, load_user_credentials};
 
 /// Runs one translation. Returns the error to report; `main` turns it into
 /// a message and an exit code.
@@ -30,14 +30,21 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
             return Ok(());
         }
         Some(Command::Auth { action }) => {
-            // Only `status` needs the User Config (for its `[credentials]`).
-            let file = match action {
+            // Only `status` needs the User Config (for its `[credentials]`),
+            // and only that file: a broken Project Config must not matter.
+            let user = match action {
                 AuthAction::Status => {
-                    load_settings_from_env(&Overrides::default())?.user_credentials
+                    let home = std::env::var_os("HOME").map(PathBuf::from);
+                    let xdg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+                    let user = load_user_credentials(home.as_deref(), xdg.as_deref())?;
+                    for warning in &user.warnings {
+                        eprintln!("warning: {warning}");
+                    }
+                    Some(user)
                 }
                 _ => None,
             };
-            return auth::run(action, file.as_ref());
+            return auth::run(action, user.as_ref());
         }
         None => {}
     }

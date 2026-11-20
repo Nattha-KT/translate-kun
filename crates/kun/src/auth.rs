@@ -13,6 +13,7 @@ use kun_core::credentials::{
 use crate::args::AuthAction;
 use crate::error::CliError;
 use crate::providers::provider_label;
+use crate::settings::UserCredentials;
 
 /// The credential store the CLI uses: the OS keychain.
 #[cfg(not(feature = "fake-provider"))]
@@ -78,17 +79,25 @@ fn found<E>(result: Result<Option<Secret>, E>) -> bool {
     matches!(result, Ok(Some(_)))
 }
 
-/// One line per provider, e.g. `google: env`.
+/// One line per provider, e.g. `google: env`. `config_ignored` says the User
+/// Config had its `[credentials]` dropped because the file is readable by
+/// others; a provider with no other key then says so instead of a bare `none`.
 pub fn status_lines(
     env: &dyn Fn(&str) -> Option<String>,
     store: &dyn CredentialStore,
     file: Option<&FileCredentials>,
+    config_ignored: bool,
 ) -> Vec<String> {
     ProviderName::ALL
         .into_iter()
         .map(|provider| {
             let source = key_source(provider, env, store, file);
-            format!("{}: {}", provider_label(provider), source.label())
+            let label = if source == KeySource::None && config_ignored {
+                "none (config file credentials ignored: file is readable by others)"
+            } else {
+                source.label()
+            };
+            format!("{}: {}", provider_label(provider), label)
         })
         .collect()
 }
@@ -135,9 +144,8 @@ fn read_key() -> Result<String, CliError> {
     }
 }
 
-/// Runs an `auth` subcommand. `file` is the User Config `[credentials]`
-/// table, used by `status`.
-pub fn run(action: AuthAction, file: Option<&FileCredentials>) -> Result<(), CliError> {
+/// Runs an `auth` subcommand. `user` is the User Config, used by `status`.
+pub fn run(action: AuthAction, user: Option<&UserCredentials>) -> Result<(), CliError> {
     let mut store = open_store();
     match action {
         AuthAction::Login { provider } => {
@@ -163,7 +171,9 @@ pub fn run(action: AuthAction, file: Option<&FileCredentials>) -> Result<(), Cli
         }
         AuthAction::Status => {
             let env = |name: &str| std::env::var(name).ok();
-            for line in status_lines(&env, &*store, file) {
+            let file = user.and_then(|user| user.credentials.as_ref());
+            let ignored = user.is_some_and(|user| user.ignored_insecure);
+            for line in status_lines(&env, &*store, file, ignored) {
                 println!("{line}");
             }
         }
@@ -259,10 +269,10 @@ mod tests {
         login(ProviderName::Anthropic, FAKE_KEY, &mut store).unwrap();
         let file = file_with(&format!("google_api_key = \"{FAKE_KEY}\""));
 
-        let lines = status_lines(&env, &store, Some(&file));
+        let lines = status_lines(&env, &store, Some(&file), false);
         assert_eq!(lines, ["google: env", "anthropic: keychain"]);
 
-        let lines = status_lines(&no_env, &MemoryStore::new(), Some(&file));
+        let lines = status_lines(&no_env, &MemoryStore::new(), Some(&file), false);
         assert_eq!(lines, ["google: config file", "anthropic: none"]);
 
         for line in lines {
@@ -271,8 +281,20 @@ mod tests {
     }
 
     #[test]
+    fn status_says_when_the_config_credentials_were_ignored() {
+        let env = |name: &str| (name == "KUN_GOOGLE_API_KEY").then(|| FAKE_KEY.to_string());
+        let lines = status_lines(&env, &MemoryStore::new(), None, true);
+        // A key that is found elsewhere is still reported as found.
+        assert_eq!(lines[0], "google: env");
+        assert_eq!(
+            lines[1],
+            "anthropic: none (config file credentials ignored: file is readable by others)"
+        );
+    }
+
+    #[test]
     fn status_survives_a_missing_keychain() {
-        let lines = status_lines(&no_env, &NoKeychain, None);
+        let lines = status_lines(&no_env, &NoKeychain, None, false);
         assert_eq!(lines.len(), 2);
         let file = file_with("google_api_key = \"x-FAKE\"");
         // An unavailable keychain is skipped, like in the lookup.
