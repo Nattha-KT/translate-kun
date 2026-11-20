@@ -982,6 +982,7 @@ dependencies = [
  "clap",
  "kun-core",
  "predicates",
+ "tempfile",
 ]
 
 [[package]]
