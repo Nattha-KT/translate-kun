@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use kun_core::config::{
-    EffectiveConfig, FileConfig, Overrides, find_project_config, load_project_config,
-    load_user_config, merge, user_config_path,
+    EffectiveConfig, FileConfig, FileCredentials, Overrides, find_project_config,
+    load_project_config, load_user_config, merge, user_config_path,
 };
 
 use crate::error::{CliError, ConfigFile};
@@ -13,6 +13,9 @@ use crate::error::{CliError, ConfigFile};
 pub struct Loaded {
     pub config: EffectiveConfig,
     pub warnings: Vec<String>,
+    /// The User Config `[credentials]` table (empty if none, or if it was
+    /// ignored because the file is readable by others).
+    pub user_credentials: Option<FileCredentials>,
 }
 
 /// Discovers the Project Config from `start_dir`, loads the User Config from
@@ -37,7 +40,12 @@ pub fn load_settings(
     let user = load_user(home, xdg_config_home, &mut warnings)?;
 
     let config = merge(overrides, project.as_ref(), user.as_ref());
-    Ok(Loaded { config, warnings })
+    let user_credentials = user.map(|file| file.credentials);
+    Ok(Loaded {
+        config,
+        warnings,
+        user_credentials,
+    })
 }
 
 /// The User Config, or `None` when there is no file. A file that exists but
@@ -53,15 +61,20 @@ fn load_user(
     if !path.is_file() {
         return Ok(None);
     }
-    if !is_private(&path) {
+    let config = load_user_config(&path).map_err(|e| CliError::config(ConfigFile::User, &e))?;
+    if config.credentials_ignored_insecure {
+        warnings.push(format!(
+            "{} is readable by others; its [credentials] were ignored. Run: chmod 600 {}",
+            path.display(),
+            path.display()
+        ));
+    } else if !is_private(&path) {
         warnings.push(format!(
             "the User Config {} is readable by other users; run `chmod 600` on it",
             path.display()
         ));
     }
-    load_user_config(&path)
-        .map(Some)
-        .map_err(|e| CliError::config(ConfigFile::User, &e))
+    Ok(Some(config))
 }
 
 #[cfg(unix)]
