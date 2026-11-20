@@ -1,8 +1,11 @@
 mod app;
 mod args;
+mod auth;
 mod error;
 mod guard;
+mod init;
 mod input;
+mod json_output;
 mod providers;
 mod settings;
 

@@ -40,16 +40,6 @@ fn help_lists_the_options_and_exit_codes() {
 }
 
 #[test]
-fn json_is_reserved_and_exits_2() {
-    Sandbox::new()
-        .kun()
-        .args(["--json", ":th", "hello"])
-        .assert()
-        .code(2)
-        .stderr(predicate::str::contains("not implemented yet"));
-}
-
-#[test]
 fn unknown_provider_exits_2() {
     Sandbox::new()
         .kun()
@@ -57,17 +47,6 @@ fn unknown_provider_exits_2() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("unknown provider"));
-}
-
-#[test]
-fn default_provider_google_is_not_wired_yet_and_exits_1() {
-    Sandbox::new()
-        .kun()
-        .args([":th", "hello"])
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("google"))
-        .stderr(predicate::str::contains("not wired up yet"));
 }
 
 #[test]

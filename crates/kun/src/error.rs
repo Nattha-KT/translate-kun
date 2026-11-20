@@ -6,6 +6,7 @@
 use std::fmt;
 
 use kun_core::config::ConfigError;
+use kun_core::credentials::CredentialError;
 use kun_core::provider::ProviderError;
 use kun_core::secret_guard::{Finding, SecretGuardError};
 use kun_core::translate::TranslateError;
@@ -88,6 +89,12 @@ pub enum CliError {
     TooLarge { limit: usize },
     /// The Provider exists but is not connected to the CLI yet.
     ProviderNotWired(&'static str),
+    /// No Google API key in the environment, the keychain or the User Config.
+    NoGoogleKey,
+    /// There is no OS keychain on this machine (`kun auth login`).
+    KeychainUnavailable { env_var: &'static str },
+    /// The OS keychain exists but a read, write or delete failed.
+    KeychainFailed,
     /// Something unexpected, such as a failed write to stdout.
     Unexpected(&'static str),
 }
@@ -113,12 +120,25 @@ impl CliError {
     pub fn exit_code(&self) -> u8 {
         match self {
             CliError::Usage(_) | CliError::NoText => 2,
-            CliError::Config { .. } | CliError::ExtraPattern(_) => 3,
-            CliError::Provider(ProviderError::MissingCredentials) => 4,
+            CliError::Config { .. }
+            | CliError::ExtraPattern(_)
+            | CliError::KeychainUnavailable { .. } => 3,
+            CliError::Provider(ProviderError::MissingCredentials) | CliError::NoGoogleKey => 4,
             CliError::Provider(_) => 5,
             CliError::SecretBlocked(_) | CliError::SecretDeclined => 6,
             CliError::TooLarge { .. } => 7,
-            CliError::ProviderNotWired(_) | CliError::Unexpected(_) => 1,
+            CliError::ProviderNotWired(_) | CliError::KeychainFailed | CliError::Unexpected(_) => 1,
+        }
+    }
+}
+
+impl CliError {
+    /// A keychain failure for `provider`. `env_var` is the variable the
+    /// message suggests when there is no keychain.
+    pub fn keychain(error: CredentialError, env_var: &'static str) -> Self {
+        match error {
+            CredentialError::StoreUnavailable => CliError::KeychainUnavailable { env_var },
+            CredentialError::StoreFailed => CliError::KeychainFailed,
         }
     }
 }
@@ -192,6 +212,18 @@ impl fmt::Display for CliError {
             CliError::ProviderNotWired(name) => {
                 write!(f, "provider `{name}` is not wired up yet in this build")
             }
+            CliError::NoGoogleKey => f.write_str(
+                "No Google API key found. Run \"kun auth login google\" or set KUN_GOOGLE_API_KEY.",
+            ),
+            CliError::KeychainUnavailable { env_var } => write!(
+                f,
+                "no OS keychain is available here, so the key was not saved. \
+                 Set {env_var} in the environment instead, or add it to the \
+                 [credentials] table of the User Config (and run `chmod 600` on that file)"
+            ),
+            CliError::KeychainFailed => {
+                f.write_str("the OS keychain could not read or write the credential")
+            }
         }
     }
 }
@@ -227,6 +259,9 @@ mod tests {
             (CliError::SecretDeclined, 6),
             (CliError::TooLarge { limit: 1 }, 7),
             (CliError::ProviderNotWired("google"), 1),
+            (CliError::NoGoogleKey, 4),
+            (CliError::KeychainUnavailable { env_var: "X" }, 3),
+            (CliError::KeychainFailed, 1),
             (CliError::Unexpected("x"), 1),
         ];
         for (error, code) in cases {

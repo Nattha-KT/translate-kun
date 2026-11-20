@@ -2,7 +2,8 @@
 //!
 //! `Cli` holds the user's text, so it deliberately has no `Debug`.
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
+use kun_core::config::ProviderName;
 use kun_core::language::LanguageCode;
 
 const EXAMPLES: &str = "\
@@ -14,13 +15,26 @@ Examples:
   kun I love it                translates \"I love it\" (`it` is never a language)
 
 A language is only recognised as the first argument in the form `:xx` or `xx:yy`.
+Text that starts with `auth` or `init` needs `--` first: kun :th -- auth is great
+Set up: `kun init` (Project Config), `kun auth login google` (API key).
 Exit codes: 0 ok, 1 unexpected, 2 usage, 3 config, 4 missing credentials,
 5 network or provider, 6 blocked by the Secret Guard, 7 input too large.";
 
 /// A command-line translator for developers.
+///
+/// `kun auth ...` and `kun init` are subcommands and win over the text. To
+/// translate text that starts with `auth` or `init`, put `--` before it.
 #[derive(Parser)]
-#[command(name = "kun", version = kun_core::version(), after_help = EXAMPLES)]
+#[command(
+    name = "kun",
+    version = kun_core::version(),
+    after_help = EXAMPLES,
+    subcommand_precedence_over_arg = true
+)]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
     /// Source Language, e.g. `en` (default: detected)
     #[arg(short, long, value_name = "LANG")]
     pub source: Option<LanguageCode>,
@@ -33,7 +47,7 @@ pub struct Cli {
     #[arg(long, value_name = "NAME")]
     pub provider: Option<String>,
 
-    /// Structured output (not implemented yet)
+    /// Print one JSON object on stdout (see docs/json-output.md)
     #[arg(long)]
     pub json: bool,
 
@@ -52,6 +66,45 @@ pub struct Cli {
     /// Optional `:xx` or `xx:yy` first, then the text. Without text, stdin is read.
     #[arg(value_name = "[:xx | xx:yy] TEXT")]
     pub words: Vec<String>,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Store, remove or check API keys
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
+    /// Create a `.kun.toml` Project Config in the current directory
+    Init {
+        /// Overwrite an existing `.kun.toml`
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AuthAction {
+    /// Read an API key (hidden prompt, or one line from stdin) and store it in the OS keychain
+    Login {
+        #[arg(value_name = "PROVIDER", value_parser = parse_provider_name)]
+        provider: ProviderName,
+    },
+    /// Delete the API key of a provider from the OS keychain
+    Logout {
+        #[arg(value_name = "PROVIDER", value_parser = parse_provider_name)]
+        provider: ProviderName,
+    },
+    /// Show where each provider's key comes from (never the key itself)
+    Status,
+}
+
+/// `google` or `anthropic`, for the `auth` subcommands.
+fn parse_provider_name(value: &str) -> Result<ProviderName, String> {
+    ProviderName::ALL
+        .into_iter()
+        .find(|candidate| crate::providers::provider_label(*candidate) == value)
+        .ok_or_else(|| "use `google` or `anthropic`".to_string())
 }
 
 /// A fixed message for a command-line parsing error.

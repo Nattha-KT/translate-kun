@@ -1,10 +1,14 @@
 //! Choosing and building the Provider.
 //!
-//! Real Providers are wired in a later slice. Until then only the fake
-//! Provider (behind the `fake-provider` cargo feature) can translate.
+//! Google is wired here. Anthropic comes in a later slice. The fake Provider
+//! (behind the `fake-provider` cargo feature) is for tests.
 
-use kun_core::config::{EffectiveConfig, ProviderName};
+use std::time::Duration;
+
+use kun_core::config::{EffectiveConfig, FileCredentials, ProviderName};
+use kun_core::credentials::{CredentialStore, env_var_name, resolve_credential};
 use kun_core::provider::Provider;
+use kun_core::provider::google::GoogleProvider;
 
 use crate::error::CliError;
 
@@ -33,14 +37,34 @@ pub fn parse_provider_flag(name: &str) -> Result<Option<ProviderName>, CliError>
         ))
 }
 
+/// Where credentials can be found (requirements §6). The caller passes the
+/// real environment and keychain; tests pass fakes.
+pub struct CredentialSources<'a> {
+    pub env: &'a dyn Fn(&str) -> Option<String>,
+    pub store: &'a dyn CredentialStore,
+    pub user_file: Option<&'a FileCredentials>,
+}
+
 /// Builds the Provider called `name`.
 pub fn build_provider(
     name: &str,
-    _config: &EffectiveConfig,
+    config: &EffectiveConfig,
+    sources: &CredentialSources,
 ) -> Result<Box<dyn Provider>, CliError> {
     match name {
         "fake" => build_fake(),
-        "google" => Err(CliError::ProviderNotWired("google")),
+        "google" => {
+            let key = resolve_credential(
+                ProviderName::Google,
+                sources.env,
+                sources.store,
+                sources.user_file,
+            )
+            .map_err(|error| CliError::keychain(error, env_var_name(ProviderName::Google)))?
+            .ok_or(CliError::NoGoogleKey)?;
+            let timeout = Duration::from_secs(config.timeout_secs);
+            Ok(Box::new(GoogleProvider::new(key, timeout)))
+        }
         "anthropic" => Err(CliError::ProviderNotWired("anthropic")),
         _ => Err(CliError::Usage(
             "unknown provider: use `google` or `anthropic`",
@@ -64,9 +88,58 @@ fn build_fake() -> Result<Box<dyn Provider>, CliError> {
 mod tests {
     use super::*;
     use kun_core::config::{Overrides, merge};
+    use kun_core::credentials::{MemoryStore, Secret};
 
     fn config() -> EffectiveConfig {
         merge(&Overrides::default(), None, None)
+    }
+
+    fn no_env(_: &str) -> Option<String> {
+        None
+    }
+
+    /// Sources with nothing in them.
+    fn build(name: &str, store: &MemoryStore) -> Result<Box<dyn Provider>, CliError> {
+        let sources = CredentialSources {
+            env: &no_env,
+            store,
+            user_file: None,
+        };
+        build_provider(name, &config(), &sources)
+    }
+
+    #[test]
+    fn google_without_a_credential_is_exit_4() {
+        let error = build("google", &MemoryStore::new()).err().unwrap();
+        assert_eq!(error.exit_code(), 4);
+        assert_eq!(
+            error.to_string(),
+            "No Google API key found. Run \"kun auth login google\" or set KUN_GOOGLE_API_KEY."
+        );
+    }
+
+    #[test]
+    fn google_is_built_from_a_keychain_key() {
+        let mut store = MemoryStore::new();
+        store
+            .set(
+                ProviderName::Google,
+                &Secret::new("AIzaFAKE-EXAMPLE".into()),
+            )
+            .unwrap();
+        let provider = build("google", &store).unwrap();
+        assert_eq!(provider.name(), "google");
+    }
+
+    #[test]
+    fn google_is_built_from_the_environment() {
+        let env = |name: &str| (name == "KUN_GOOGLE_API_KEY").then(|| "AIzaFAKE".to_string());
+        let sources = CredentialSources {
+            env: &env,
+            store: &MemoryStore::new(),
+            user_file: None,
+        };
+        assert!(build_provider("google", &config(), &sources).is_ok());
     }
 
     #[test]
@@ -88,17 +161,15 @@ mod tests {
     }
 
     #[test]
-    fn real_providers_are_not_wired_yet() {
-        for name in ["google", "anthropic"] {
-            let error = build_provider(name, &config()).err().unwrap();
-            assert_eq!(error.exit_code(), 1, "{name}");
-            assert!(error.to_string().contains(name));
-        }
+    fn anthropic_is_not_wired_yet() {
+        let error = build("anthropic", &MemoryStore::new()).err().unwrap();
+        assert_eq!(error.exit_code(), 1);
+        assert!(error.to_string().contains("anthropic"));
     }
 
     #[test]
     fn unknown_provider_is_a_usage_error() {
-        let error = build_provider("deepl", &config()).err().unwrap();
+        let error = build("deepl", &MemoryStore::new()).err().unwrap();
         assert_eq!(error.exit_code(), 2);
     }
 
@@ -106,7 +177,7 @@ mod tests {
     #[test]
     fn fake_provider_is_available_with_the_feature() {
         assert_eq!(parse_provider_flag("fake").unwrap(), None);
-        let provider = build_provider("fake", &config()).unwrap();
+        let provider = build("fake", &MemoryStore::new()).unwrap();
         assert_eq!(provider.name(), "fake");
     }
 
@@ -115,7 +186,10 @@ mod tests {
     fn fake_provider_is_unknown_without_the_feature() {
         assert_eq!(parse_provider_flag("fake").unwrap_err().exit_code(), 2);
         assert_eq!(
-            build_provider("fake", &config()).err().unwrap().exit_code(),
+            build("fake", &MemoryStore::new())
+                .err()
+                .unwrap()
+                .exit_code(),
             2
         );
     }

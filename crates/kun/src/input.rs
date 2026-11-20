@@ -28,7 +28,7 @@ pub fn read_input(args_text: Option<String>, max_chars: usize) -> Result<Input, 
     match args_text {
         Some(text) => Ok(Input {
             text,
-            ignored_stdin: !stdin_is_terminal,
+            ignored_stdin: !stdin_is_terminal && !stdin_is_known_empty(),
         }),
         None if stdin_is_terminal => Ok(Input {
             text: String::new(),
@@ -39,6 +39,45 @@ pub fn read_input(args_text: Option<String>, max_chars: usize) -> Result<Input, 
             ignored_stdin: false,
         }),
     }
+}
+
+/// True when stdin is `/dev/null` or an empty regular file, so there is
+/// nothing to ignore and no warning is needed. This only looks at file
+/// metadata: it never reads and never waits.
+#[cfg(unix)]
+fn stdin_is_known_empty() -> bool {
+    use std::os::fd::AsFd;
+
+    let Ok(fd) = io::stdin().as_fd().try_clone_to_owned() else {
+        return false;
+    };
+    match std::fs::File::from(fd).metadata() {
+        Ok(metadata) => is_known_empty(&metadata),
+        Err(_) => false,
+    }
+}
+
+/// Off Unix, stdin is always treated as possibly holding data.
+#[cfg(not(unix))]
+fn stdin_is_known_empty() -> bool {
+    false
+}
+
+/// An empty regular file, or the `/dev/null` device.
+#[cfg(unix)]
+fn is_known_empty(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    if metadata.is_file() {
+        return metadata.len() == 0;
+    }
+    if metadata.file_type().is_char_device() {
+        return match std::fs::metadata("/dev/null") {
+            Ok(null) => null.rdev() == metadata.rdev(),
+            Err(_) => false,
+        };
+    }
+    false
 }
 
 /// Reads all of stdin, but never more than `max_chars` characters' worth of bytes.
@@ -59,4 +98,28 @@ fn read_stdin(max_chars: usize) -> Result<String, CliError> {
         return Err(CliError::TooLarge { limit: max_chars });
     }
     String::from_utf8(bytes).map_err(|_| CliError::Usage("standard input is not valid UTF-8"))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dev_null_and_empty_files_count_as_empty() {
+        let null = std::fs::File::open("/dev/null").unwrap();
+        assert!(is_known_empty(&null.metadata().unwrap()));
+
+        let dir = tempfile::tempdir().unwrap();
+        let empty = dir.path().join("empty");
+        std::fs::write(&empty, "").unwrap();
+        assert!(is_known_empty(&std::fs::metadata(&empty).unwrap()));
+    }
+
+    #[test]
+    fn files_with_content_do_not_count_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let full = dir.path().join("full");
+        std::fs::write(&full, "x").unwrap();
+        assert!(!is_known_empty(&std::fs::metadata(&full).unwrap()));
+    }
 }
