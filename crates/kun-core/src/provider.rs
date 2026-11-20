@@ -2,6 +2,7 @@
 //! Provider (Google, Anthropic, the fake one used in tests) implements.
 
 pub mod fake;
+pub mod google;
 
 use thiserror::Error;
 
