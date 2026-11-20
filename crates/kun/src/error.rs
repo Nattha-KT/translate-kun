@@ -87,10 +87,10 @@ pub enum CliError {
     SecretDeclined,
     /// The input is longer than `max_chars`.
     TooLarge { limit: usize },
-    /// The Provider exists but is not connected to the CLI yet.
-    ProviderNotWired(&'static str),
     /// No Google API key in the environment, the keychain or the User Config.
     NoGoogleKey,
+    /// No Anthropic API key in the environment, the keychain or the User Config.
+    NoAnthropicKey,
     /// There is no OS keychain on this machine (`kun auth login`).
     KeychainUnavailable { env_var: &'static str },
     /// The OS keychain exists but a read, write or delete failed.
@@ -123,11 +123,13 @@ impl CliError {
             CliError::Config { .. }
             | CliError::ExtraPattern(_)
             | CliError::KeychainUnavailable { .. } => 3,
-            CliError::Provider(ProviderError::MissingCredentials) | CliError::NoGoogleKey => 4,
+            CliError::Provider(ProviderError::MissingCredentials)
+            | CliError::NoGoogleKey
+            | CliError::NoAnthropicKey => 4,
             CliError::Provider(_) => 5,
             CliError::SecretBlocked(_) | CliError::SecretDeclined => 6,
             CliError::TooLarge { .. } => 7,
-            CliError::ProviderNotWired(_) | CliError::KeychainFailed | CliError::Unexpected(_) => 1,
+            CliError::KeychainFailed | CliError::Unexpected(_) => 1,
         }
     }
 }
@@ -188,6 +190,7 @@ impl fmt::Display for CliError {
                 ProviderError::MissingCredentials => f.write_str(
                     "no credentials found for this provider (run `kun auth login <provider>`)",
                 ),
+                ProviderError::Refused => f.write_str("The provider declined to translate this text."),
                 other => write!(f, "{other}; you can try another one with `--provider`"),
             },
             CliError::SecretBlocked(findings) => {
@@ -209,11 +212,11 @@ impl fmt::Display for CliError {
                 "the input is longer than the limit of {limit} characters \
                  (raise it with --max-chars or `max_chars` in a config file)"
             ),
-            CliError::ProviderNotWired(name) => {
-                write!(f, "provider `{name}` is not wired up yet in this build")
-            }
             CliError::NoGoogleKey => f.write_str(
                 "No Google API key found. Run \"kun auth login google\" or set KUN_GOOGLE_API_KEY.",
+            ),
+            CliError::NoAnthropicKey => f.write_str(
+                "No Anthropic API key found. Run \"kun auth login anthropic\" or set ANTHROPIC_API_KEY.",
             ),
             CliError::KeychainUnavailable { env_var } => write!(
                 f,
@@ -258,8 +261,9 @@ mod tests {
             (CliError::SecretBlocked(Vec::new()), 6),
             (CliError::SecretDeclined, 6),
             (CliError::TooLarge { limit: 1 }, 7),
-            (CliError::ProviderNotWired("google"), 1),
+            (CliError::Provider(ProviderError::Refused), 5),
             (CliError::NoGoogleKey, 4),
+            (CliError::NoAnthropicKey, 4),
             (CliError::KeychainUnavailable { env_var: "X" }, 3),
             (CliError::KeychainFailed, 1),
             (CliError::Unexpected("x"), 1),
@@ -267,6 +271,16 @@ mod tests {
         for (error, code) in cases {
             assert_eq!(error.exit_code(), code, "{error:?}");
         }
+    }
+
+    #[test]
+    fn a_refusal_is_exit_5_with_a_clear_message() {
+        let error = CliError::from(TranslateError::Provider(ProviderError::Refused));
+        assert_eq!(error.exit_code(), 5);
+        assert_eq!(
+            error.to_string(),
+            "The provider declined to translate this text."
+        );
     }
 
     #[test]
