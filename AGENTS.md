@@ -32,6 +32,11 @@
   - Any type or error that can hold user-supplied free text (input text, config strings, regex patterns, HTTP bodies, URLs) must not show that text in `Debug`, `Display` or `Error::source()`.
   - Use fixed messages and structured, non-sensitive fields (enums, codes, indices, byte ranges), or write a manual `Debug` that prints `<redacted>`.
   - Add a test that formats with `{:?}` and `{:#?}` and asserts a fake key is absent.
+- **Security in proportion.** The owner explicitly asked that security not be taken to an extreme. `kun` is a personal CLI translator, not a vault.
+  - **Threat model:** stop credentials and the user's text from leaking to third parties, logs, terminal output, shell history or other local users. That is what matters.
+  - **Out of scope:** malware running as the same user, a hostile OS, attackers with debugger access, memory scraping, timing side channels and similar threats. Do not design for them.
+  - **Usability counts.** Do not break a normal workflow (e.g. fallback to the 0600 User Config when no keychain exists, running from cron or CI) to close a theoretical gap. If a fix costs real usability for a small risk reduction, say so and let the coordinator decide.
+  - Prefer the simplest fix that closes a realistic leak. No extra crates, wrappers or ceremony "just in case".
 - Edit only the files your slice spec lists as in scope. If something outside scope must change, stop and report it.
 - Do not add dependencies beyond those your slice spec allows without saying why in your report.
 
@@ -39,7 +44,7 @@
 
 1. `cargo fmt --all --check` passes.
 2. `cargo clippy --workspace --all-targets -- -D warnings` passes.
-3. `cargo test --workspace` passes.
+3. `cargo test --workspace --features kun/fake-provider` passes. Clippy runs with the same feature.
 4. Code uses `GLOSSARY.md` terms and does not contradict any ADR.
 5. Changes are committed on your worktree branch with a Conventional Commit message (`feat:`, `fix:`, `chore:`, `test:`, `docs:`).
 
@@ -75,3 +80,10 @@ Orca coordination (`orchestration` skill) is handled by the coordinator. Workers
 - Read only the requirement sections named in your spec; don't explore the whole repo.
 - Don't paste large files or full diffs into reports. Summarise.
 - Reviewers: review the diff against the spec + named requirement sections only.
+
+## Reviewer severity (Codex)
+
+- **blocker**: a realistic path by which a credential or the user's text reaches a third party, a log, terminal output or another local user; a crash or data loss; a spec rule broken in a way users will hit.
+- **should-fix**: a wrong behaviour a user may hit; a spec deviation.
+- **nit**: theoretical, rare or cosmetic issues; trade-offs (convenience vs. hardening) belong here with a one-line note, not as blockers.
+- Do not raise the same class of issue again once it is fixed, unless the fix itself is wrong.
