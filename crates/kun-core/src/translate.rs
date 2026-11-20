@@ -5,6 +5,7 @@ use std::fmt;
 
 use crate::config::LanguagePair;
 use crate::language::LanguageCode;
+use crate::protected_terms::{protect, restore};
 use crate::provider::{Provider, ProviderError, Translation, TranslationRequest};
 use thiserror::Error;
 
@@ -53,6 +54,9 @@ pub struct Translated {
     /// The Source Language equals the Target Language, so the input was
     /// returned unchanged (requirements §3). The CLI prints a warning.
     pub same_language: bool,
+    /// A Protected Term was lost by the Provider, so it could not be put back
+    /// (requirements §8). The translation is still returned; the CLI warns.
+    pub protected_terms_missing: bool,
 }
 
 /// `Debug` hides the text: it is user input (or a translation of it) and may
@@ -64,21 +68,39 @@ impl fmt::Debug for Translated {
             .field("detected_source", &self.translation.detected_source)
             .field("provider", &self.translation.provider)
             .field("same_language", &self.same_language)
+            .field("protected_terms_missing", &self.protected_terms_missing)
             .finish()
     }
 }
 
-/// Translates `text` following `plan`. See the S5 slice spec for the rules.
+/// Translates `text` following `plan`, with no Protected Terms.
+/// See [`translate_with_terms`].
 pub fn translate(
     provider: &dyn Provider,
     text: &str,
     source: Option<LanguageCode>,
     plan: TargetPlan,
 ) -> Result<Translated, TranslateError> {
+    translate_with_terms(provider, text, source, plan, &[])
+}
+
+/// Translates `text` following `plan`. See the S5 slice spec for the rules.
+///
+/// Every Provider call is wrapped in Protected Terms: the terms are swapped
+/// for placeholders before the call and put back after it. If the Provider
+/// loses a placeholder, the translation is still returned, with
+/// `protected_terms_missing` set.
+pub fn translate_with_terms(
+    provider: &dyn Provider,
+    text: &str,
+    source: Option<LanguageCode>,
+    plan: TargetPlan,
+    protected_terms: &[String],
+) -> Result<Translated, TranslateError> {
     match plan {
         TargetPlan::Missing => Err(TranslateError::NoTarget),
-        TargetPlan::Fixed(target) => translate_to(provider, text, source, target),
-        TargetPlan::Pair(pair) => translate_pair(provider, text, source, &pair),
+        TargetPlan::Fixed(target) => translate_to(provider, text, source, target, protected_terms),
+        TargetPlan::Pair(pair) => translate_pair(provider, text, source, &pair, protected_terms),
     }
 }
 
@@ -89,13 +111,15 @@ fn translate_to(
     text: &str,
     source: Option<LanguageCode>,
     target: LanguageCode,
+    terms: &[String],
 ) -> Result<Translated, TranslateError> {
     // An explicit source that equals the target needs no Provider call.
     if source.as_ref() == Some(&target) {
         return Ok(unchanged(provider, text, source));
     }
 
-    let translation = call_provider(provider, text, source, target.clone())?;
+    let (translation, all_terms_found) =
+        call_provider(provider, text, source, target.clone(), terms)?;
 
     if translation.detected_source.as_ref() == Some(&target) {
         return Ok(unchanged(provider, text, translation.detected_source));
@@ -103,21 +127,28 @@ fn translate_to(
     Ok(Translated {
         translation,
         same_language: false,
+        protected_terms_missing: !all_terms_found,
     })
 }
 
-/// One Provider call, with nothing added.
+/// One Provider call, wrapped in Protected Terms. The `bool` is `true` when
+/// every Protected Term came back.
 fn call_provider(
     provider: &dyn Provider,
     text: &str,
     source: Option<LanguageCode>,
     target: LanguageCode,
-) -> Result<Translation, ProviderError> {
-    provider.translate(&TranslationRequest {
-        text: text.to_string(),
+    terms: &[String],
+) -> Result<(Translation, bool), ProviderError> {
+    let (protected_text, placeholders) = protect(text, terms);
+    let mut translation = provider.translate(&TranslationRequest {
+        text: protected_text,
         source,
         target,
-    })
+    })?;
+    let (restored, all_found) = restore(&translation.text, &placeholders);
+    translation.text = restored;
+    Ok((translation, all_found))
 }
 
 /// The Language Pair rule (requirements §3): the first language is the
@@ -131,6 +162,7 @@ fn translate_pair(
     text: &str,
     source: Option<LanguageCode>,
     pair: &LanguagePair,
+    terms: &[String],
 ) -> Result<Translated, TranslateError> {
     // The source is known, so the direction is known: one call.
     if let Some(source) = source {
@@ -139,28 +171,33 @@ fn translate_pair(
         } else {
             pair.first().clone()
         };
-        let translation = call_provider(provider, text, Some(source), target)?;
+        let (translation, all_found) = call_provider(provider, text, Some(source), target, terms)?;
         return Ok(Translated {
             translation,
             same_language: false,
+            protected_terms_missing: !all_found,
         });
     }
 
-    let first = call_provider(provider, text, None, pair.first().clone())?;
+    let (first, first_all_found) =
+        call_provider(provider, text, None, pair.first().clone(), terms)?;
     if first.detected_source.as_ref() != Some(pair.first()) {
         return Ok(Translated {
             translation: first,
             same_language: false,
+            protected_terms_missing: !first_all_found,
         });
     }
 
     // The text is in the first language: translate again to the second one.
     // The source is already known, so the Provider does not detect it again.
-    let mut second = call_provider(
+    // Only this second result is returned, so only its terms count.
+    let (mut second, all_found) = call_provider(
         provider,
         text,
         Some(pair.first().clone()),
         pair.second().clone(),
+        terms,
     )?;
     // A Provider that was told the source may not report it: fill it in.
     if second.detected_source.is_none() {
@@ -169,6 +206,7 @@ fn translate_pair(
     Ok(Translated {
         translation: second,
         same_language: false,
+        protected_terms_missing: !all_found,
     })
 }
 
@@ -185,6 +223,7 @@ fn unchanged(
             provider: provider.name(),
         },
         same_language: true,
+        protected_terms_missing: false,
     }
 }
 
@@ -312,6 +351,7 @@ mod tests {
                 provider: "fake",
             },
             same_language: true,
+            protected_terms_missing: false,
         };
         for shown in [format!("{translated:?}"), format!("{translated:#?}")] {
             assert!(!shown.contains(secret), "leaked in: {shown}");
@@ -330,6 +370,144 @@ mod tests {
         .unwrap();
         assert!(!format!("{result:?}").contains(secret));
         assert!(!format!("{result:#?}").contains(secret));
+    }
+
+    // --- Protected Terms ------------------------------------------------------
+
+    fn terms(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Remembers every text it was asked to translate, then behaves like the
+    /// fake Provider.
+    struct RecordingProvider {
+        seen: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl Provider for RecordingProvider {
+        fn name(&self) -> &'static str {
+            "fake"
+        }
+
+        fn translate(&self, request: &TranslationRequest) -> Result<Translation, ProviderError> {
+            self.seen.borrow_mut().push(request.text.clone());
+            FakeProvider::new().translate(request)
+        }
+    }
+
+    /// Drops every word it does not know, like a translator that eats a name.
+    struct EatingProvider;
+
+    impl Provider for EatingProvider {
+        fn name(&self) -> &'static str {
+            "eating"
+        }
+
+        fn translate(&self, _: &TranslationRequest) -> Result<Translation, ProviderError> {
+            Ok(Translation {
+                text: "gone".to_string(),
+                detected_source: None,
+                provider: "eating",
+            })
+        }
+    }
+
+    #[test]
+    fn protected_terms_survive_a_fake_provider_round_trip() {
+        let provider = RecordingProvider {
+            seen: Default::default(),
+        };
+        let list = terms(&["translate-kun", "Orca"]);
+        let result = translate_with_terms(
+            &provider,
+            "translate-kun runs in Orca",
+            None,
+            TargetPlan::Fixed(lang("th")),
+            &list,
+        )
+        .unwrap();
+        assert_eq!(result.translation.text, "[th] translate-kun runs in Orca");
+        assert!(!result.protected_terms_missing);
+        // The Provider only ever saw the placeholders.
+        assert_eq!(
+            provider.seen.borrow().as_slice(),
+            ["KUNPT0X runs in KUNPT1X"]
+        );
+    }
+
+    #[test]
+    fn overlapping_terms_are_handled() {
+        let result = translate_with_terms(
+            &FakeProvider::new(),
+            "translate-kun is kun",
+            None,
+            TargetPlan::Fixed(lang("th")),
+            &terms(&["kun", "translate-kun"]),
+        )
+        .unwrap();
+        assert_eq!(result.translation.text, "[th] translate-kun is kun");
+    }
+
+    #[test]
+    fn no_terms_sends_the_text_as_it_is() {
+        let provider = RecordingProvider {
+            seen: Default::default(),
+        };
+        let result =
+            translate(&provider, "hello Orca", None, TargetPlan::Fixed(lang("th"))).unwrap();
+        assert_eq!(result.translation.text, "[th] hello Orca");
+        assert_eq!(provider.seen.borrow().as_slice(), ["hello Orca"]);
+    }
+
+    #[test]
+    fn both_pair_calls_protect_the_terms() {
+        let provider = RecordingProvider {
+            seen: Default::default(),
+        };
+        let result = translate_with_terms(
+            &provider,
+            "hello Orca",
+            None,
+            TargetPlan::Pair(pair("en", "th")),
+            &terms(&["Orca"]),
+        )
+        .unwrap();
+        // en is the first language, so there are two calls.
+        assert_eq!(
+            provider.seen.borrow().as_slice(),
+            ["hello KUNPT0X", "hello KUNPT0X"]
+        );
+        assert_eq!(result.translation.text, "[th] hello Orca");
+        assert!(!result.protected_terms_missing);
+    }
+
+    #[test]
+    fn a_lost_term_is_a_warning_flag_not_an_error() {
+        let result = translate_with_terms(
+            &EatingProvider,
+            "hello Orca",
+            None,
+            TargetPlan::Fixed(lang("th")),
+            &terms(&["Orca"]),
+        )
+        .unwrap();
+        assert_eq!(result.translation.text, "gone");
+        assert!(result.protected_terms_missing);
+    }
+
+    #[test]
+    fn same_language_returns_the_original_text_with_its_terms() {
+        let result = translate_with_terms(
+            &FakeProvider::new(),
+            "hello Orca",
+            Some(lang("en")),
+            TargetPlan::Fixed(lang("en")),
+            &terms(&["Orca"]),
+        )
+        .unwrap();
+        assert_eq!(result.translation.text, "hello Orca");
+        assert!(result.same_language);
+        assert!(!result.protected_terms_missing);
     }
 
     const THAI: &str = "สวัสดี";

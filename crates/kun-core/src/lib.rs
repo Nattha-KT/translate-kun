@@ -3,6 +3,7 @@
 pub mod config;
 pub mod credentials;
 pub mod language;
+pub mod protected_terms;
 pub mod provider;
 pub mod secret_guard;
 pub mod translate;

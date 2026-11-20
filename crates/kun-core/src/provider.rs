@@ -1,15 +1,18 @@
 //! The Provider abstraction: one small interface that every translation
 //! Provider (Google, Anthropic, the fake one used in tests) implements.
 
+pub mod anthropic;
 pub mod fake;
 pub mod google;
+
+use std::fmt;
 
 use thiserror::Error;
 
 use crate::language::LanguageCode;
 
 /// What to translate and into which Target Language.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TranslationRequest {
     pub text: String,
     /// The Source Language. `None` means the Provider auto-detects it.
@@ -17,14 +20,36 @@ pub struct TranslationRequest {
     pub target: LanguageCode,
 }
 
+/// `Debug` hides the text: it is user input and may hold a secret.
+impl fmt::Debug for TranslationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TranslationRequest")
+            .field("text", &"<redacted>")
+            .field("source", &self.source)
+            .field("target", &self.target)
+            .finish()
+    }
+}
+
 /// The result of a successful translation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Translation {
     pub text: String,
     /// The Source Language the Provider detected, if it reports one.
     pub detected_source: Option<LanguageCode>,
     /// The `name()` of the Provider that produced this translation.
     pub provider: &'static str,
+}
+
+/// `Debug` hides the text: it is a translation of user input.
+impl fmt::Debug for Translation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Translation")
+            .field("text", &"<redacted>")
+            .field("detected_source", &self.detected_source)
+            .field("provider", &self.provider)
+            .finish()
+    }
 }
 
 /// Why a network call failed. Only fixed categories: never a URL, header or
@@ -60,6 +85,9 @@ pub enum ProviderError {
     UnsupportedLanguage(LanguageCode),
     #[error("the provider returned a response that could not be understood")]
     InvalidResponse,
+    /// The model declined to translate the text (Anthropic `refusal`).
+    #[error("the provider refused to translate this text")]
+    Refused,
 }
 
 /// A translation service. Synchronous and object-safe, so the CLI can hold a
@@ -142,11 +170,42 @@ mod tests {
                 "the provider returned a response that could not be understood",
                 "InvalidResponse",
             ),
+            (
+                ProviderError::Refused,
+                "the provider refused to translate this text",
+                "Refused",
+            ),
         ];
         for (error, display, debug) in cases {
             assert_eq!(error.to_string(), display);
             assert_eq!(format!("{error:?}"), debug);
         }
+    }
+
+    #[test]
+    fn request_and_translation_debug_hide_the_text() {
+        let fake = "FAKE-SECRET-TEXT-EXAMPLE-12345";
+        let request = TranslationRequest {
+            text: fake.to_string(),
+            source: Some("en".parse().unwrap()),
+            target: "th".parse().unwrap(),
+        };
+        let translation = Translation {
+            text: fake.to_string(),
+            detected_source: Some("en".parse().unwrap()),
+            provider: "fake",
+        };
+        for shown in [
+            format!("{request:?}"),
+            format!("{request:#?}"),
+            format!("{translation:?}"),
+            format!("{translation:#?}"),
+        ] {
+            assert!(!shown.contains(fake), "leaked in: {shown}");
+            assert!(shown.contains("<redacted>"));
+        }
+        assert!(format!("{request:?}").contains("th"));
+        assert!(format!("{translation:?}").contains("fake"));
     }
 
     #[test]
