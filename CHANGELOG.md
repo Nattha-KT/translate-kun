@@ -25,7 +25,7 @@ First public version, planned as 0.1.0.
 
 - Google Cloud Translation (default) and Anthropic (default model `claude-haiku-5-5`), chosen with `--provider` or `provider` in a config file.
 - No automatic fallback between Providers.
-- `HTTPS_PROXY` and `NO_PROXY` are honoured.
+- `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` are honoured.
 - A `Provider` trait in `kun-core` for adding more Providers, and an offline fake Provider for tests.
 
 **Configuration**
@@ -45,7 +45,7 @@ First public version, planned as 0.1.0.
 
 **Secret Guard**
 
-- Built-in patterns for AWS access keys, GitHub tokens, Anthropic, OpenAI and Google API keys, Slack tokens, private key blocks and JWTs, plus extra patterns from config.
+- Built-in patterns for AWS access key IDs and secret access keys, GitHub and GitLab tokens, Anthropic, OpenAI and Google API keys, Slack tokens, Stripe live keys, npm and Hugging Face tokens, private key blocks and JWTs, plus extra patterns from config.
 - Prompt on a terminal, block in scripts (exit 6), `--redact` to mask, `--allow-secrets` to override.
 
 **Project**
@@ -54,5 +54,17 @@ First public version, planned as 0.1.0.
 - Documentation: README, usage, configuration and architecture guides, contributing guide, code of conduct and security policy.
 - Issue forms and a pull request template.
 - CI on Linux and macOS (format, clippy, tests).
+
+### Security
+
+Fixes from the pre-publish security audit:
+
+- Secret Guard: new pattern for the AWS secret access key in assignment form (`aws_secret_access_key = …`), so `--redact` hides both halves of an AWS key pair.
+- Secret Guard: keys right after `_` or a JSON-escaped `\n` / `\t` are no longer missed.
+- Secret Guard: new patterns for Stripe live keys, GitLab personal access tokens, npm tokens and Hugging Face tokens.
+- A `providers.<name>.endpoint` for the Provider in use now fails with exit 3 instead of being silently ignored (which sent the text to the public API).
+- On a terminal, control characters other than newline and tab are stripped from the translation, so a prompt-injected model cannot emit escape sequences. Pipes and `--json` are unchanged.
+- The Anthropic Provider's `Debug` output no longer shows the model name.
+- Docs: text given as arguments lands in shell history and `ps` (use stdin for sensitive text); all proxy variables are honoured and HTTPS always goes through `CONNECT`; the Secret Guard is the Adapter's job, not `kun-core`'s.
 
 [Unreleased]: https://github.com/Nattha-KT/translate-kun/commits/main

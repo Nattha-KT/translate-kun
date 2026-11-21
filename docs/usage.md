@@ -89,6 +89,7 @@ There is deliberately **no flag for API keys**. They would end up in your shell 
 
 ## Input: arguments and stdin
 
+- **Sensitive text goes through stdin.** Text given as arguments is saved in your shell history and is visible to other local users in `ps` while `kun` runs. For anything private, pipe it in or redirect a file instead: `kun :th < notes.txt`.
 - **Text arguments win.** If you give text as arguments, stdin is not read. If stdin is also piped or redirected, `kun` prints a warning on stderr and uses the arguments.
 - **No arguments, piped stdin.** The text is read from stdin:
 
@@ -104,7 +105,7 @@ There is deliberately **no flag for API keys**. They would end up in your shell 
 
 ## Output
 
-- **stdout** holds the translated text only, followed by a newline.
+- **stdout** holds the translated text only, followed by a newline. When stdout is a terminal, control characters other than newline and tab are removed from the translation, so a Provider cannot send terminal escape sequences. Pipes, redirects and `--json` get the text unchanged.
 - **stderr** holds diagnostics: the Provider used, the detected Source Language, warnings, and the Secret Guard prompt.
 - A closed pipe (`kun ... | head`) is not an error.
 - With `--json`, stdout holds one JSON object and warnings go inside it. Errors are never JSON: they go to stderr and stdout stays empty.
@@ -128,7 +129,7 @@ Choose one with `--provider` or `provider` in a config file. The Anthropic model
 
 There is **no automatic fallback**. If a Provider fails, `kun` exits with an error and suggests `--provider`; it never sends your text to a second company on its own.
 
-`kun` honours the `HTTPS_PROXY` and `NO_PROXY` environment variables. The request timeout is 15 seconds by default (`timeout_secs` in a config file).
+`kun` honours the `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` environment variables (see [configuration](configuration.md#proxies)). The request timeout is 15 seconds by default (`timeout_secs` in a config file).
 
 ## Protected Terms
 
@@ -146,7 +147,17 @@ Matching is case-sensitive, and the longest term wins when terms overlap. `kun` 
 
 ## Secret Guard
 
-The Secret Guard runs **before** any text leaves your machine. It looks for AWS access keys, GitHub tokens, Anthropic, OpenAI and Google API keys, Slack tokens, private key blocks and JWTs, plus any extra patterns from your config.
+The Secret Guard runs **before** any text leaves your machine. It looks for these kinds of secret, plus any extra patterns from your config:
+
+- AWS access key IDs, and AWS secret access keys written as an assignment (`aws_secret_access_key = …`, `AWS_SECRET_ACCESS_KEY=…`, `"SecretAccessKey": "…"`)
+- GitHub and GitLab tokens
+- Anthropic, OpenAI and Google API keys
+- Slack tokens
+- Stripe live keys (`sk_live_`, `rk_live_`)
+- npm and Hugging Face tokens
+- private key blocks and JWTs
+
+Keys are also found right after `_`, or after a JSON-escaped `\n` or `\t`.
 
 | Situation | What happens |
 |---|---|
@@ -220,7 +231,7 @@ Install it once, then open a new shell:
 | 0 | Success |
 | 1 | Unexpected error (including a keychain read or write failure) |
 | 2 | Usage error: bad arguments, no text, no Target Language, `kun init` over an existing file |
-| 3 | Configuration error (including a credential in a Project Config), or no OS keychain for `kun auth login` |
+| 3 | Configuration error (including a credential in a Project Config, or a `providers.<name>.endpoint` for the Provider in use), or no OS keychain for `kun auth login` |
 | 4 | Missing credentials |
 | 5 | Network or Provider error (timeout, rate limit, rejected key, unsupported language, refusal) |
 | 6 | Blocked by the Secret Guard, or you declined its prompt |
@@ -234,4 +245,4 @@ Install it once, then open a new shell:
 | `ANTHROPIC_API_KEY` | Anthropic API key. |
 | `XDG_CONFIG_HOME` | Where the User Config directory lives (`$XDG_CONFIG_HOME/kun/config.toml`). Must be an absolute path. |
 | `HOME` | Fallback for the User Config (`~/.config/kun/config.toml`). |
-| `HTTPS_PROXY`, `NO_PROXY` | Proxy settings for Provider requests. |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | Proxy settings for Provider requests (lower-case names work too). |

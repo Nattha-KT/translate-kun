@@ -178,7 +178,20 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         ),
         None => eprintln!("provider: {}", translation.provider),
     }
+    // A prompt-injected model could answer with terminal escape sequences.
+    // Pipes and `--json` get the text exactly as the Provider sent it.
+    if io::stdout().is_terminal() {
+        return write_stdout(&strip_control_chars(&translation.text));
+    }
     write_stdout(&translation.text)
+}
+
+/// Removes the C0 and C1 control characters (and DEL) except `\n` and `\t`,
+/// so text printed to a terminal cannot carry escape sequences.
+fn strip_control_chars(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
+        .collect()
 }
 
 /// Loads the config files using HOME, XDG_CONFIG_HOME and the current directory.
@@ -308,6 +321,19 @@ mod tests {
         let list = warnings.into_list();
         assert_eq!(list.len(), 1);
         assert!(list[0].contains("Protected Term"));
+    }
+
+    #[test]
+    fn terminal_output_loses_escape_sequences_and_control_characters() {
+        // ESC (C0), BEL, CR, DEL and CSI (C1, U+009B) are removed.
+        let hostile = "red\u{1b}[31mtext\u{7}\r\u{7f}\u{9b}2J end";
+        assert_eq!(strip_control_chars(hostile), "red[31mtext2J end");
+    }
+
+    #[test]
+    fn terminal_output_keeps_newlines_tabs_and_thai() {
+        let text = "บรรทัดหนึ่ง\n\tบรรทัดสอง — “quoted” 😀\n";
+        assert_eq!(strip_control_chars(text), text);
     }
 
     #[test]

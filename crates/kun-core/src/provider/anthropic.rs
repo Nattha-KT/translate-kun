@@ -81,10 +81,11 @@ impl AnthropicProvider {
 
 impl fmt::Debug for AnthropicProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // The agent is left out (proxy password) and the style is free text.
+        // The agent is left out (proxy password); the model and the style
+        // are free text from the config.
         f.debug_struct("AnthropicProvider")
             .field("key", &self.key)
-            .field("model", &self.model)
+            .field("model", &"<redacted>")
             .field("style", &self.style.as_ref().map(|_| "<redacted>"))
             .field("timeout", &self.timeout)
             .finish()
@@ -694,6 +695,23 @@ mod tests {
     fn provider_name_and_default_model() {
         assert_eq!(provider().name(), "anthropic");
         assert_eq!(DEFAULT_MODEL, "claude-haiku-5-5");
+    }
+
+    #[test]
+    fn provider_debug_never_shows_the_model() {
+        // The model name is a free-text config string.
+        let provider = AnthropicProvider::new(
+            Secret::new(FAKE_KEY.to_string()),
+            "FAKE-EXAMPLE-MODEL".to_string(),
+            Duration::from_secs(30),
+        );
+        for output in [format!("{provider:?}"), format!("{provider:#?}")] {
+            assert!(
+                !output.contains("FAKE-EXAMPLE-MODEL"),
+                "leaked in: {output}"
+            );
+            assert!(output.contains("model: \"<redacted>\""), "{output}");
+        }
     }
 
     #[test]
