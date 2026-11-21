@@ -177,6 +177,7 @@ Runs **before** any text leaves the machine.
 | 5 | Network or Provider error |
 | 6 | Blocked by Secret Guard |
 | 7 | Input exceeds the size limit |
+| 8 | Rate limited, or the Provider's quota, credit or billing limit was reached (added in S14) |
 
 ## 10. Limits, privacy, network
 

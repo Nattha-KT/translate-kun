@@ -9,9 +9,7 @@
 
 ## Environment
 
-- Rust comes from Homebrew rustup.
-  - **Claude Code workers**: `.claude/settings.json` puts `/opt/homebrew/opt/rustup/bin` on `PATH`, so just run `cargo ...`. Don't `export PATH=...`: it triggers a permission prompt.
-  - **Codex / other agents**: prefix each command with `PATH=/opt/homebrew/opt/rustup/bin:$PATH`. The bare absolute cargo path fails, because cargo cannot find `rustc`.
+- Rust is installed with [rustup](https://rustup.rs). `rust-toolchain.toml` pins the channel, and `cargo` must be on `PATH`. Machine-specific agent settings (PATH, permission allow-lists) belong in your own untracked `.claude/settings.local.json`, never in a tracked file.
 - Read files with the Read tool, not long `grep`/`head` shell chains.
 - Create and edit files with the Write and Edit tools, one file per call. **Never create files via bash heredocs or `cat >`**: every such command needs a human approval. Use Bash only for `cargo` and `git`, **one plain command per call**: no `;`, `&&` chains or pipes into other tools, because each extra command can trigger an approval prompt.
 - Toolchain: stable (rustc 1.100). `clippy` and `rustfmt` are installed.

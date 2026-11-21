@@ -3,3 +3,7 @@
 .env.*
 *.pem
 .DS_Store
+
+# Local agent settings (machine-specific, never commit)
+.claude/settings.json
+.claude/settings.local.json

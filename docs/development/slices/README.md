@@ -20,7 +20,7 @@ Each slice is one unit of work for one implementer, reviewed by one reviewer, ap
 | S11b | Core structure: split config, `non_exhaustive`, docs, licence files | S10 | Sonnet 5.5 / medium | merged |
 | S12 | Security audit fixes | S11 | Opus 5.5 / high | merged |
 | S13 | Trust and transparency: `--dry-run`, privacy doc, audit report, fuzzing, Scorecard | S12 | Sonnet 5.5 / high | merged |
-| S14 | Rate limits, quotas and output limits (exit code 8) | S13 | Sonnet 5.5 / high | in progress |
+| S14 | Rate limits, quotas and output limits (exit code 8) | S13 | Sonnet 5.5 / high | merged |
 
 At most 2 implementers run at once, and there is 1 reviewer (Codex).
 
