@@ -52,13 +52,15 @@ fn an_insecure_user_config_warns_and_its_credentials_are_ignored() {
 }
 
 #[test]
-fn anthropic_is_still_not_wired_and_exits_1() {
+fn anthropic_without_a_credential_exits_4_with_a_helpful_message() {
     Sandbox::new()
         .kun()
         .args(["--provider", "anthropic", ":th", "hello"])
         .assert()
-        .code(1)
-        .stderr(predicate::str::contains("not wired up yet"));
+        .code(4)
+        .stderr(predicate::str::contains(
+            "No Anthropic API key found. Run \"kun auth login anthropic\" or set ANTHROPIC_API_KEY.",
+        ));
 }
 
 // --- kun auth -----------------------------------------------------------

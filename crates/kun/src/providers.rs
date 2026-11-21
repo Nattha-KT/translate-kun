@@ -1,6 +1,6 @@
 //! Choosing and building the Provider.
 //!
-//! Google is wired here. Anthropic comes in a later slice. The fake Provider
+//! Google and Anthropic are wired here. The fake Provider
 //! (behind the `fake-provider` cargo feature) is for tests.
 
 use std::time::Duration;
@@ -8,6 +8,7 @@ use std::time::Duration;
 use kun_core::config::{EffectiveConfig, FileCredentials, ProviderName};
 use kun_core::credentials::{CredentialStore, env_var_name, resolve_credential};
 use kun_core::provider::Provider;
+use kun_core::provider::anthropic::{AnthropicProvider, DEFAULT_MODEL};
 use kun_core::provider::google::GoogleProvider;
 
 use crate::error::CliError;
@@ -65,7 +66,23 @@ pub fn build_provider(
             let timeout = Duration::from_secs(config.timeout_secs);
             Ok(Box::new(GoogleProvider::new(key, timeout)))
         }
-        "anthropic" => Err(CliError::ProviderNotWired("anthropic")),
+        "anthropic" => {
+            let key = resolve_credential(
+                ProviderName::Anthropic,
+                sources.env,
+                sources.store,
+                sources.user_file,
+            )
+            .map_err(|error| CliError::keychain(error, env_var_name(ProviderName::Anthropic)))?
+            .ok_or(CliError::NoAnthropicKey)?;
+            let model = config
+                .providers
+                .get(&ProviderName::Anthropic)
+                .and_then(|settings| settings.model.clone())
+                .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+            let timeout = Duration::from_secs(config.timeout_secs);
+            Ok(Box::new(AnthropicProvider::new(key, model, timeout)))
+        }
         _ => Err(CliError::Usage(
             "unknown provider: use `google` or `anthropic`",
         )),
@@ -161,10 +178,26 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_is_not_wired_yet() {
+    fn anthropic_without_a_credential_is_exit_4() {
         let error = build("anthropic", &MemoryStore::new()).err().unwrap();
-        assert_eq!(error.exit_code(), 1);
-        assert!(error.to_string().contains("anthropic"));
+        assert_eq!(error.exit_code(), 4);
+        assert_eq!(
+            error.to_string(),
+            "No Anthropic API key found. Run \"kun auth login anthropic\" or set ANTHROPIC_API_KEY."
+        );
+    }
+
+    #[test]
+    fn anthropic_is_built_from_a_keychain_key() {
+        let mut store = MemoryStore::new();
+        store
+            .set(
+                ProviderName::Anthropic,
+                &Secret::new("sk-ant-FAKE-EXAMPLE".into()),
+            )
+            .unwrap();
+        let provider = build("anthropic", &store).unwrap();
+        assert_eq!(provider.name(), "anthropic");
     }
 
     #[test]

@@ -50,16 +50,6 @@ fn unknown_provider_exits_2() {
 }
 
 #[test]
-fn anthropic_is_not_wired_yet_and_exits_1() {
-    Sandbox::new()
-        .kun()
-        .args(["--provider", "anthropic", ":th", "hello"])
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("anthropic"));
-}
-
-#[test]
 fn invalid_language_flag_exits_2() {
     Sandbox::new()
         .kun()
