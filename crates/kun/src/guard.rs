@@ -58,6 +58,8 @@ pub fn run_secret_guard(
             }
         }
         Decision::Block => Err(CliError::SecretBlocked(findings)),
+        // `Decision` is `#[non_exhaustive]`. An unknown decision must not send the text.
+        _ => Err(CliError::SecretBlocked(findings)),
     }
 }
 

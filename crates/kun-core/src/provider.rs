@@ -14,9 +14,11 @@ use crate::language::LanguageCode;
 /// What to translate and into which Target Language.
 #[derive(Clone, PartialEq, Eq)]
 pub struct TranslationRequest {
+    /// The text to translate.
     pub text: String,
     /// The Source Language. `None` means the Provider auto-detects it.
     pub source: Option<LanguageCode>,
+    /// The Target Language.
     pub target: LanguageCode,
 }
 
@@ -34,6 +36,7 @@ impl fmt::Debug for TranslationRequest {
 /// The result of a successful translation.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Translation {
+    /// The translated text.
     pub text: String,
     /// The Source Language the Provider detected, if it reports one.
     pub detected_source: Option<LanguageCode>,
@@ -55,13 +58,18 @@ impl fmt::Debug for Translation {
 /// Why a network call failed. Only fixed categories: never a URL, header or
 /// response body, because those can contain API keys or the source text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum NetworkReason {
+    /// The request took longer than the timeout.
     #[error("request timed out")]
     Timeout,
+    /// No connection to the server could be made.
     #[error("could not connect")]
     Connect,
+    /// The TLS handshake failed.
     #[error("TLS error")]
     Tls,
+    /// The server answered with this HTTP status code.
     #[error("HTTP status {0}")]
     Status(u16),
 }
@@ -72,17 +80,24 @@ pub enum NetworkReason {
 /// credentials or the source text, and the CLI can print them as they are.
 /// Variants map to exit codes in the CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum ProviderError {
+    /// No credentials were found for this Provider.
     #[error("no credentials found for this provider")]
     MissingCredentials,
+    /// The Provider rejected the credentials.
     #[error("the provider rejected the credentials")]
     Authentication,
+    /// The network call failed.
     #[error("network error: {0}")]
     Network(NetworkReason),
+    /// The Provider is rate limiting requests.
     #[error("the provider is rate limiting requests")]
     RateLimited,
+    /// The Provider does not support this language.
     #[error("the provider does not support language `{0}`")]
     UnsupportedLanguage(LanguageCode),
+    /// The response could not be parsed.
     #[error("the provider returned a response that could not be understood")]
     InvalidResponse,
     /// The model declined to translate the text (Anthropic `refusal`).

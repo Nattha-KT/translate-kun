@@ -18,6 +18,8 @@ pub fn provider_label(name: ProviderName) -> &'static str {
     match name {
         ProviderName::Google => "google",
         ProviderName::Anthropic => "anthropic",
+        // `ProviderName` is `#[non_exhaustive]`.
+        _ => "unknown",
     }
 }
 

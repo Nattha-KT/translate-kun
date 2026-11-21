@@ -40,9 +40,12 @@ pub fn resolve_target(
 
 /// Why a translation could not be produced.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum TranslateError {
+    /// Nothing says which Target Language to use.
     #[error("no Target Language: use `:xx`, `-t xx`, or set `target` or `pair` in a config file")]
     NoTarget,
+    /// The Provider failed.
     #[error(transparent)]
     Provider(#[from] ProviderError),
 }
@@ -50,6 +53,7 @@ pub enum TranslateError {
 /// A successful translation plus what the CLI should warn about.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Translated {
+    /// What the Provider returned, with Protected Terms put back.
     pub translation: Translation,
     /// The Source Language equals the Target Language, so the input was
     /// returned unchanged (requirements §3). The CLI prints a warning.
