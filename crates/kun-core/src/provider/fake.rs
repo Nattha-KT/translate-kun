@@ -107,11 +107,11 @@ mod tests {
 
     #[test]
     fn failing_provider_returns_the_chosen_error() {
-        let provider = FakeProvider::failing(ProviderError::RateLimited);
+        let provider = FakeProvider::failing(ProviderError::QuotaExceeded);
         let error = provider
             .translate(&request("hello", None, "th"))
             .unwrap_err();
-        assert_eq!(error, ProviderError::RateLimited);
+        assert_eq!(error, ProviderError::QuotaExceeded);
     }
 
     #[test]

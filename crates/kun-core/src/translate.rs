@@ -541,9 +541,12 @@ mod tests {
 
     #[test]
     fn provider_errors_are_passed_on() {
-        let provider = FakeProvider::failing(ProviderError::RateLimited);
+        let provider = FakeProvider::failing(ProviderError::QuotaExceeded);
         let error = translate(&provider, "hello", None, TargetPlan::Fixed(lang("th"))).unwrap_err();
-        assert_eq!(error, TranslateError::Provider(ProviderError::RateLimited));
+        assert_eq!(
+            error,
+            TranslateError::Provider(ProviderError::QuotaExceeded)
+        );
     }
 
     #[test]

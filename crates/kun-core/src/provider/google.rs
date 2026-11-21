@@ -15,7 +15,9 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{NetworkReason, Provider, ProviderError, Translation, TranslationRequest};
+use super::{
+    NetworkReason, Provider, ProviderError, Translation, TranslationRequest, parse_retry_after,
+};
 use crate::credentials::Secret;
 use crate::language::LanguageCode;
 
@@ -83,12 +85,18 @@ impl Provider for GoogleProvider {
             .map_err(transport_error)?;
 
         let status = response.status().as_u16();
+        let retry_after = parse_retry_after(
+            response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok()),
+        );
         let mut body = response
             .body_mut()
             .with_config()
             .limit(MAX_BODY_BYTES)
             .reader();
-        read_response(status, &mut body, &request.target)
+        read_response(status, retry_after, &mut body, &request.target)
     }
 }
 
@@ -97,19 +105,20 @@ impl Provider for GoogleProvider {
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
 
 /// Turn a response into a result, reading `body` only when the status needs
-/// it: a 2xx is parsed, a 400 is classified. Every other status is decided by
-/// the code alone.
+/// it: a 2xx is parsed; a 400, 403 or 429 is classified. Every other status is
+/// decided by the code alone. `retry_after` is the parsed `Retry-After` header.
 ///
 /// A failure while reading (timeout, reset connection) goes through
 /// [`transport_error`], so it is never mistaken for the HTTP status.
 fn read_response(
     status: u16,
+    retry_after: Option<u64>,
     body: &mut dyn Read,
     target: &LanguageCode,
 ) -> Result<Translation, ProviderError> {
     let is_success = (200..300).contains(&status);
-    if !is_success && status != 400 {
-        return Err(status_error(status));
+    if !is_success && !matches!(status, 400 | 403 | 429) {
+        return Err(status_error(status, retry_after));
     }
 
     let mut bytes = Vec::new();
@@ -123,7 +132,7 @@ fn read_response(
     } else {
         // The body only helps to classify the error; it is never kept.
         let text = String::from_utf8_lossy(&bytes);
-        Err(error_for_status(status, &text, target))
+        Err(error_for_status(status, retry_after, &text, target))
     }
 }
 
@@ -183,10 +192,12 @@ fn parse_response(body: &str) -> Result<Translation, ProviderError> {
 }
 
 /// The error for a non-2xx status, without looking at the body.
-fn status_error(status: u16) -> ProviderError {
+fn status_error(status: u16, retry_after: Option<u64>) -> ProviderError {
     match status {
         401 | 403 => ProviderError::Authentication,
-        429 => ProviderError::RateLimited,
+        429 => ProviderError::RateLimited {
+            retry_after_secs: retry_after,
+        },
         _ => ProviderError::Network(NetworkReason::Status(status)),
     }
 }
@@ -202,14 +213,82 @@ struct ErrorBody {
 struct ErrorInfo {
     #[serde(default)]
     message: String,
+    /// Google's own status name, such as `RESOURCE_EXHAUSTED`.
+    #[serde(default)]
+    status: Option<String>,
+    /// `error.errors[]`: the old-style list that carries the `reason`.
+    #[serde(default)]
+    errors: Vec<ErrorItem>,
     #[serde(default)]
     details: Vec<ErrorDetail>,
+}
+
+#[derive(Deserialize)]
+struct ErrorItem {
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct ErrorDetail {
     #[serde(default)]
     reason: Option<String>,
+}
+
+/// `error.errors[].reason` values that mean a quota, credit or billing limit.
+const QUOTA_REASONS: [&str; 4] = [
+    "quotaExceeded",
+    "dailyLimitExceeded",
+    "billingNotEnabled",
+    "accessNotConfigured",
+];
+
+/// `error.errors[].reason` values that mean "too many requests, slow down".
+const RATE_LIMIT_REASONS: [&str; 2] = ["rateLimitExceeded", "userRateLimitExceeded"];
+
+/// The Google `error.status` that goes with a quota problem.
+const RESOURCE_EXHAUSTED: &str = "RESOURCE_EXHAUSTED";
+
+/// Classify a 403 or 429 from its parsed body.
+///
+/// A recognised quota reason is `QuotaExceeded` (also an unlisted reason that
+/// contains "quota" when the status is `RESOURCE_EXHAUSTED`). A rate-limit
+/// reason is `RateLimited`. Otherwise the plain status decides: 429 is
+/// `RateLimited` and 403 stays `Authentication`.
+fn classify_limit(
+    status: u16,
+    retry_after: Option<u64>,
+    error: Option<&ErrorInfo>,
+) -> ProviderError {
+    let reasons: Vec<&str> = error
+        .map(|error| {
+            error
+                .errors
+                .iter()
+                .filter_map(|item| item.reason.as_deref())
+                .collect()
+        })
+        .unwrap_or_default();
+    let resource_exhausted = error
+        .and_then(|error| error.status.as_deref())
+        .is_some_and(|name| name == RESOURCE_EXHAUSTED);
+
+    let is_quota = reasons.iter().any(|reason| {
+        QUOTA_REASONS.contains(reason)
+            || (resource_exhausted && reason.to_lowercase().contains("quota"))
+    });
+    if is_quota {
+        return ProviderError::QuotaExceeded;
+    }
+    if reasons
+        .iter()
+        .any(|reason| RATE_LIMIT_REASONS.contains(reason))
+    {
+        return ProviderError::RateLimited {
+            retry_after_secs: retry_after,
+        };
+    }
+    status_error(status, retry_after)
 }
 
 /// The `reason` Google puts in `error.details[]` for an invalid API key.
@@ -238,12 +317,21 @@ const UNSUPPORTED_LANGUAGE_PHRASES: [&str; 4] = [
 /// 400, not 401) becomes `Authentication`, and an unsupported language becomes
 /// `UnsupportedLanguage(target)`. A body that is not a Google error JSON
 /// keeps the plain status. The body itself is never put in the error.
-fn error_for_status(status: u16, body: &str, target: &LanguageCode) -> ProviderError {
-    if status != 400 {
-        return status_error(status);
+fn error_for_status(
+    status: u16,
+    retry_after: Option<u64>,
+    body: &str,
+    target: &LanguageCode,
+) -> ProviderError {
+    let parsed = serde_json::from_str::<ErrorBody>(body).ok();
+    if matches!(status, 403 | 429) {
+        return classify_limit(status, retry_after, parsed.as_ref().map(|body| &body.error));
     }
-    let Ok(parsed) = serde_json::from_str::<ErrorBody>(body) else {
-        return status_error(status);
+    if status != 400 {
+        return status_error(status, retry_after);
+    }
+    let Some(parsed) = parsed else {
+        return status_error(status, retry_after);
     };
     if is_invalid_api_key(&parsed.error) {
         return ProviderError::Authentication;
@@ -255,7 +343,7 @@ fn error_for_status(status: u16, body: &str, target: &LanguageCode) -> ProviderE
     {
         return ProviderError::UnsupportedLanguage(target.clone());
     }
-    status_error(status)
+    status_error(status, retry_after)
 }
 
 /// Map a `ureq` error to a fixed [`ProviderError`]. The `ureq` error is
@@ -265,7 +353,7 @@ fn error_for_status(status: u16, body: &str, target: &LanguageCode) -> ProviderE
 /// `InvalidData`, so that kind counts as a TLS failure.
 fn transport_error(error: ureq::Error) -> ProviderError {
     let reason = match error {
-        ureq::Error::StatusCode(status) => return status_error(status),
+        ureq::Error::StatusCode(status) => return status_error(status, None),
         ureq::Error::Timeout(_) => NetworkReason::Timeout,
         ureq::Error::Io(io) => match io.kind() {
             ErrorKind::TimedOut => NetworkReason::Timeout,
@@ -386,14 +474,154 @@ mod tests {
         for (status, expected) in [
             (401, ProviderError::Authentication),
             (403, ProviderError::Authentication),
-            (429, ProviderError::RateLimited),
+            (
+                429,
+                ProviderError::RateLimited {
+                    retry_after_secs: None,
+                },
+            ),
             (400, ProviderError::Network(NetworkReason::Status(400))),
             (404, ProviderError::Network(NetworkReason::Status(404))),
             (500, ProviderError::Network(NetworkReason::Status(500))),
             (503, ProviderError::Network(NetworkReason::Status(503))),
             (302, ProviderError::Network(NetworkReason::Status(302))),
         ] {
-            assert_eq!(error_for_status(status, "", &target), expected, "{status}");
+            assert_eq!(
+                error_for_status(status, None, "", &target),
+                expected,
+                "{status}"
+            );
+        }
+    }
+
+    // --- limits and quotas ------------------------------------------------------
+
+    /// A canned Google error body with one `errors[].reason` and a status.
+    fn limit_body(code: u16, reason: &str, status: &str) -> String {
+        json!({
+            "error": {
+                "code": code,
+                "message": "FAKE-EXAMPLE message that must never be shown",
+                "errors": [{ "message": "FAKE", "domain": "usageLimits", "reason": reason }],
+                "status": status
+            }
+        })
+        .to_string()
+    }
+
+    fn rate_limited(retry_after_secs: Option<u64>) -> ProviderError {
+        ProviderError::RateLimited { retry_after_secs }
+    }
+
+    #[test]
+    fn a_403_quota_reason_is_quota_exceeded() {
+        for reason in [
+            "quotaExceeded",
+            "dailyLimitExceeded",
+            "billingNotEnabled",
+            "accessNotConfigured",
+        ] {
+            let body = limit_body(403, reason, "PERMISSION_DENIED");
+            assert_eq!(
+                error_for_status(403, None, &body, &lang("th")),
+                ProviderError::QuotaExceeded,
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_429_with_resource_exhausted_and_a_quota_reason_is_quota_exceeded() {
+        let body = limit_body(429, "quotaExceeded", "RESOURCE_EXHAUSTED");
+        assert_eq!(
+            error_for_status(429, Some(30), &body, &lang("th")),
+            ProviderError::QuotaExceeded
+        );
+        // An unlisted reason that still says "quota", with RESOURCE_EXHAUSTED.
+        let body = limit_body(429, "projectQuotaLimit", "RESOURCE_EXHAUSTED");
+        assert_eq!(
+            error_for_status(429, None, &body, &lang("th")),
+            ProviderError::QuotaExceeded
+        );
+    }
+
+    #[test]
+    fn a_403_rate_limit_reason_is_rate_limited() {
+        for reason in ["rateLimitExceeded", "userRateLimitExceeded"] {
+            let body = limit_body(403, reason, "PERMISSION_DENIED");
+            assert_eq!(
+                error_for_status(403, None, &body, &lang("th")),
+                rate_limited(None),
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_429_without_a_quota_reason_is_rate_limited_with_retry_after() {
+        let body = limit_body(429, "rateLimitExceeded", "RESOURCE_EXHAUSTED");
+        let error = error_for_status(429, Some(30), &body, &lang("th"));
+        assert_eq!(error, rate_limited(Some(30)));
+        assert!(error.to_string().contains("30 seconds"), "{error}");
+        // No body, an unparsable body or an unknown reason: still a 429.
+        for body in [
+            "",
+            "<html>Too Many Requests</html>",
+            &limit_body(429, "other", "X"),
+        ] {
+            assert_eq!(
+                error_for_status(429, Some(7), body, &lang("th")),
+                rate_limited(Some(7)),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_plain_403_stays_authentication() {
+        for body in [
+            "".to_string(),
+            "not json".to_string(),
+            limit_body(403, "forbidden", "PERMISSION_DENIED"),
+            // RESOURCE_EXHAUSTED alone, with no quota reason, is not enough.
+            limit_body(403, "forbidden", "RESOURCE_EXHAUSTED"),
+        ] {
+            assert_eq!(
+                error_for_status(403, None, &body, &lang("th")),
+                ProviderError::Authentication,
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_body_is_read_for_403_and_429() {
+        let quota = limit_body(403, "quotaExceeded", "PERMISSION_DENIED");
+        assert_eq!(
+            read_response(403, None, &mut quota.as_bytes(), &lang("th")).unwrap_err(),
+            ProviderError::QuotaExceeded
+        );
+        let slow_down = limit_body(429, "rateLimitExceeded", "RESOURCE_EXHAUSTED");
+        let error = read_response(429, Some(30), &mut slow_down.as_bytes(), &lang("th"));
+        assert_eq!(error.unwrap_err(), rate_limited(Some(30)));
+    }
+
+    #[test]
+    fn limit_errors_never_contain_the_response_body() {
+        let body = json!({
+            "error": {
+                "code": 403,
+                "message": format!("key={FAKE_KEY} quota gone"),
+                "errors": [{ "message": FAKE_KEY, "reason": "quotaExceeded" }],
+                "status": "RESOURCE_EXHAUSTED"
+            }
+        })
+        .to_string();
+        for status in [403, 429] {
+            let error = error_for_status(status, Some(5), &body, &lang("th"));
+            let shown = format!("{error} {error:?} {error:#?}");
+            assert!(!shown.contains(FAKE_KEY), "{shown}");
+            assert!(!shown.contains("quota gone"), "{shown}");
         }
     }
 
@@ -418,7 +646,7 @@ mod tests {
         ] {
             let body = google_error(message, "badRequest");
             assert_eq!(
-                error_for_status(400, &body, &target),
+                error_for_status(400, None, &body, &target),
                 ProviderError::UnsupportedLanguage(lang("tlh")),
                 "{message}"
             );
@@ -433,7 +661,7 @@ mod tests {
             "badRequest",
         );
         assert_eq!(
-            error_for_status(400, &body, &lang("th")),
+            error_for_status(400, None, &body, &lang("th")),
             ProviderError::Authentication
         );
     }
@@ -454,7 +682,7 @@ mod tests {
         })
         .to_string();
         assert_eq!(
-            error_for_status(400, &body, &lang("th")),
+            error_for_status(400, None, &body, &lang("th")),
             ProviderError::Authentication
         );
     }
@@ -471,7 +699,7 @@ mod tests {
         ];
         for body in elsewhere {
             assert_eq!(
-                error_for_status(400, &body.to_string(), &lang("th")),
+                error_for_status(400, None, &body.to_string(), &lang("th")),
                 ProviderError::Network(NetworkReason::Status(400)),
                 "{body}"
             );
@@ -486,7 +714,7 @@ mod tests {
             "<html>Bad language pair</html>",
         ] {
             assert_eq!(
-                error_for_status(400, body, &lang("th")),
+                error_for_status(400, None, body, &lang("th")),
                 ProviderError::Network(NetworkReason::Status(400)),
                 "{body}"
             );
@@ -500,7 +728,7 @@ mod tests {
             "not json".to_string(),
         ] {
             assert_eq!(
-                error_for_status(400, &body, &lang("th")),
+                error_for_status(400, None, &body, &lang("th")),
                 ProviderError::Network(NetworkReason::Status(400))
             );
         }
@@ -510,7 +738,7 @@ mod tests {
     fn errors_never_contain_the_response_body() {
         let body = google_error(&format!("Bad language pair, key={FAKE_KEY}"), "badRequest");
         for status in [400, 401, 429, 500] {
-            let error = error_for_status(status, &body, &lang("th"));
+            let error = error_for_status(status, None, &body, &lang("th"));
             let shown = format!("{error} {error:?} {error:#?}");
             assert!(!shown.contains(FAKE_KEY), "{shown}");
             assert!(!shown.contains("Bad language pair"), "{shown}");
@@ -610,7 +838,7 @@ mod tests {
 
     #[test]
     fn a_200_body_is_read_and_parsed() {
-        let translation = read_response(200, &mut OK_BODY.as_bytes(), &lang("th")).unwrap();
+        let translation = read_response(200, None, &mut OK_BODY.as_bytes(), &lang("th")).unwrap();
         assert_eq!(translation.text, "สวัสดี");
     }
 
@@ -618,7 +846,7 @@ mod tests {
     fn a_400_body_is_read_to_classify_it() {
         let body = google_error("Bad language pair: en|tlh", "badRequest");
         assert_eq!(
-            read_response(400, &mut body.as_bytes(), &lang("tlh")).unwrap_err(),
+            read_response(400, None, &mut body.as_bytes(), &lang("tlh")).unwrap_err(),
             ProviderError::UnsupportedLanguage(lang("tlh"))
         );
     }
@@ -627,14 +855,12 @@ mod tests {
     fn other_statuses_do_not_read_the_body() {
         for (status, expected) in [
             (401, ProviderError::Authentication),
-            (403, ProviderError::Authentication),
-            (429, ProviderError::RateLimited),
             (404, ProviderError::Network(NetworkReason::Status(404))),
             (500, ProviderError::Network(NetworkReason::Status(500))),
             (302, ProviderError::Network(NetworkReason::Status(302))),
         ] {
             assert_eq!(
-                read_response(status, &mut UnreadBody, &lang("th")).unwrap_err(),
+                read_response(status, None, &mut UnreadBody, &lang("th")).unwrap_err(),
                 expected,
                 "{status}"
             );
@@ -660,7 +886,7 @@ mod tests {
                 (reset, NetworkReason::Connect),
             ] {
                 assert_eq!(
-                    read_response(status, &mut FailingBody(make), &lang("th")).unwrap_err(),
+                    read_response(status, None, &mut FailingBody(make), &lang("th")).unwrap_err(),
                     ProviderError::Network(reason),
                     "{status}"
                 );
@@ -672,7 +898,7 @@ mod tests {
     fn a_200_body_that_is_not_utf8_is_invalid_response() {
         let bytes: &[u8] = &[0xff, 0xfe, 0xfd];
         assert_eq!(
-            read_response(200, &mut &bytes[..], &lang("th")).unwrap_err(),
+            read_response(200, None, &mut &bytes[..], &lang("th")).unwrap_err(),
             ProviderError::InvalidResponse
         );
     }

@@ -259,6 +259,26 @@ Install it once, then open a new shell:
 
 `completions` is a subcommand like `auth` and `init`, so text that starts with it needs `--` first.
 
+## Limits, quotas and costs
+
+- **Free tiers exist, but they change.** Both Providers have a free or low-cost way to start, with limits. Check the current terms on their pricing pages before you rely on them.
+- **`max_chars` bounds the cost of one call.** The default is 10,000 characters per input. Lower it (`--max-chars`, or `max_chars` in a config file) if you want a smaller ceiling. Text longer than the limit is refused before anything is sent (exit 7).
+- **A reply that is too long fails clearly.** A very long translation (Thai uses many tokens per character) can hit the Anthropic output limit of 16,000 tokens. `kun` then exits with 5 and tells you to split the text or lower `max_chars`. It never returns a half-finished translation.
+- **There are no automatic retries, by design.** A retry could cost money twice and send your text twice. When a Provider rate limits you or a quota runs out, `kun` exits with **8**, and the message says how long to wait if the Provider said so. A script can retry on 8:
+
+  ```sh
+  kun :th "$TEXT" || { [ $? -eq 8 ] && sleep 30 && kun :th "$TEXT"; }
+  ```
+
+  A rate limit passes on its own. A quota, credit or billing limit does not: open your account page (below), then retry.
+
+Where to check your account and limits:
+
+| Provider | Pricing | Quotas and billing |
+|---|---|---|
+| Google Cloud Translation | <https://cloud.google.com/translate/pricing> | <https://console.cloud.google.com/apis/api/translate.googleapis.com/quotas> (billing: <https://console.cloud.google.com/billing>) |
+| Anthropic | <https://www.anthropic.com/pricing> | <https://console.anthropic.com/settings/limits> (credits: <https://console.anthropic.com/settings/billing>) |
+
 ## Exit codes
 
 | Code | Meaning |
@@ -268,9 +288,10 @@ Install it once, then open a new shell:
 | 2 | Usage error: bad arguments, no text, no Target Language, `kun init` over an existing file |
 | 3 | Configuration error (including a credential in a Project Config, or a `providers.<name>.endpoint` for the Provider in use), or no OS keychain for `kun auth login` |
 | 4 | Missing credentials |
-| 5 | Network or Provider error (timeout, rate limit, rejected key, unsupported language, refusal) |
+| 5 | Network or Provider error (timeout, rejected key, unsupported language, refusal, or a translation too long for one request) |
 | 6 | Blocked by the Secret Guard, or you declined its prompt |
 | 7 | Input longer than the limit |
+| 8 | Rate limited, or the Provider's quota, credit or billing limit was reached. Waiting and retrying, or checking your Provider account, may help. When the Provider sends a `Retry-After` header, the message says how many seconds to wait |
 
 ## Environment variables
 

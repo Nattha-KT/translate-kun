@@ -19,7 +19,8 @@ Text that starts with `auth`, `init` or `completions` needs `--` first: kun :th 
 Set up: `kun init` (Project Config), `kun auth login google` (API key),
 `kun completions <shell>` (shell completions).
 Exit codes: 0 ok, 1 unexpected, 2 usage, 3 config, 4 missing credentials,
-5 network or provider, 6 blocked by the Secret Guard, 7 input too large.";
+5 network or provider, 6 blocked by the Secret Guard, 7 input too large,
+8 rate limited or quota exceeded (retrying later may help).";
 
 /// A command-line translator for developers.
 ///

@@ -19,7 +19,8 @@ First public version, planned as 0.1.0.
 - Input limit of 10,000 characters by default (`--max-chars`, `max_chars`) and a 15-second Provider timeout (`timeout_secs`).
 - Translation on stdout, diagnostics and warnings on stderr.
 - `--json` output with a versioned schema (`schema_version` 1). See `docs/json-output.md`.
-- Stable exit codes 0 to 7.
+- Stable exit codes 0 to 8. Exit 8 means "rate limited or quota exceeded": a Google quota or billing error and an Anthropic credit-balance error are no longer reported as a rejected key or a plain HTTP status. A `Retry-After` header (seconds form) is shown in the message. Scripts can retry on 8.
+- A translation that does not fit in one request now fails with a clear message (exit 5) instead of "response could not be understood". The Anthropic output limit is raised from 4,096 to 16,000 tokens, so long English-to-Thai input works.
 - `--dry-run`: runs the whole pipeline up to the point of sending, prints the host, the model, the credential source, the Secret Guard decision and the exact text that would be sent, and sends nothing. `--dry-run --json` returns one object (`dry_run: true`, `schema_version` 1).
 
 **Providers**

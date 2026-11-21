@@ -83,7 +83,7 @@ pub trait Provider {
 
 - `TranslationRequest` holds the text, an optional Source Language (`None` means detect) and the Target Language.
 - `Translation` holds the translated text, the detected Source Language (if the Provider reports one) and the Provider's name.
-- `ProviderError` has only fixed variants (`MissingCredentials`, `Authentication`, `Network(reason)`, `RateLimited`, `UnsupportedLanguage`, `InvalidResponse`, `Refused`). It never carries free text, so an error can never leak a key, a URL or the user's text.
+- `ProviderError` has only fixed variants (`MissingCredentials`, `Authentication`, `Network(reason)`, `RateLimited { retry_after_secs }`, `QuotaExceeded`, `OutputTruncated`, `UnsupportedLanguage`, `InvalidResponse`, `Refused`). `RateLimited` and `QuotaExceeded` map to exit code 8. It never carries free text, so an error can never leak a key, a URL or the user's text.
 
 ## How to add a new Provider
 
