@@ -1,0 +1,11 @@
+target = "th"
+
+[secret_guard]
+allow_secrets = true
+
+[providers.google]
+endpoint = "https://example.invalid"
+model = "FAKE-model"
+
+[credentials]
+google_api_key = "FAKE-EXAMPLE-not-a-real-key"

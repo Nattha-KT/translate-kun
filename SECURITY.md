@@ -42,3 +42,20 @@ This is a personal project, so the response is **best effort**. You can normally
 - Denial of service against your own machine through very large input (there is a size limit, but it is not a security boundary).
 
 If you are unsure whether something is in scope, report it anyway: a short private report is welcome.
+
+## Security assurance
+
+What has been checked, and how much weight to give it.
+
+**Audit.** Before the first release the code was reviewed in a read-only security audit. The public summary, with every finding and its status, is in [docs/security/audit-2026-11.md](docs/security/audit-2026-11.md).
+
+> **Disclaimer: the audit was performed by an AI model (Claude Opus 5.5), not by an independent professional security firm, and the project is pre-1.0 personal software.** It is useful evidence, not a guarantee. Please read the code and the [privacy statement](docs/privacy.md) yourself if the stakes are high for you.
+
+**Continuous checks.** These run automatically, so the assurance does not depend on one review:
+
+- **cargo-deny** runs in CI on every push and pull request. It checks dependencies for known advisories, banned crates, licences and untrusted sources (`deny.toml`).
+- **Dependabot** opens weekly pull requests for Cargo dependencies and GitHub Actions.
+- **Fuzzing.** Three [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets (`secret_guard`, `config_parse`, `protected_terms`) run weekly in CI for a short time. See [CONTRIBUTING.md](CONTRIBUTING.md#fuzzing) to run them locally.
+- **OpenSSF Scorecard** scores the repository's security practices automatically and publishes the result. The score is shown as a badge in the [README](README.md).
+
+**Privacy.** What data leaves your machine, and how to verify it yourself with `kun --dry-run`, is in [docs/privacy.md](docs/privacy.md).

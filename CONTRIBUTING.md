@@ -36,6 +36,31 @@ Live tests, which call real Provider APIs, are optional and never run in CI:
 KUN_GOOGLE_API_KEY=... cargo test -p kun-core --features live
 ```
 
+## Fuzzing
+
+The `fuzz/` directory holds [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets for the code that handles untrusted text. It is its own workspace and is not part of `cargo test --workspace`, so you only need it if you work on these areas.
+
+| Target | What it checks |
+|---|---|
+| `secret_guard` | Secret Guard `scan` then `redact` on arbitrary UTF-8: no panic, and a redacted finding is gone from the output |
+| `config_parse` | Arbitrary bytes as a Project Config and as a User Config: no panic, and a Project Config never carries credentials, an endpoint or `allow_secrets` |
+| `protected_terms` | `protect` then `restore` gives back the original text (input is `text\|term\|term...`) |
+
+Fuzzing needs a **nightly** toolchain and `cargo-fuzz`:
+
+```sh
+rustup toolchain install nightly
+cargo install cargo-fuzz --locked
+
+cargo +nightly fuzz run secret_guard -- -max_total_time=60
+cargo +nightly fuzz run config_parse -- -max_total_time=60
+cargo +nightly fuzz run protected_terms -- -max_total_time=60
+```
+
+Without `-max_total_time` a target runs until you stop it or it finds a crash. A crash is saved under `fuzz/artifacts/<target>/`: replay it with `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`, then turn it into a normal unit test in `kun-core` and fix the bug.
+
+The seed inputs in `fuzz/corpus/<target>/seed-*` are committed. Anything else the fuzzer writes into `fuzz/corpus/` is ignored by git. The Secret Guard seeds are fake secrets cut by the marker `<SPLIT>` (the target removes it before scanning), so no file in the repository contains a complete secret-looking string. Keep it that way when you add a seed. CI runs each target for 60 seconds every week (`.github/workflows/fuzz.yml`).
+
 ## Code guidelines
 
 - Write simple, idiomatic Rust. Prefer owned types over lifetimes where the cost is small, no async, no macros of your own, no clever generics.
