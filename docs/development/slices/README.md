@@ -14,6 +14,10 @@ Each slice is one unit of work for one implementer, reviewed by one reviewer, ap
 | S7 | Google wiring, `kun auth`, `kun init`, `--json` (CLI) | S4, S5 | Sonnet 5.5 / medium | merged |
 | S7b | Anthropic CLI wiring | S6, S7 | Sonnet 5.5 / low | merged |
 | S8 | Release: cargo-dist, Homebrew | S7 | Sonnet 5.5 / medium | deferred: owner chose not to publish yet (2026-11-21) |
+| S9 | Open-source docs and community files | S7b | Sonnet 5.5 / medium | merged |
+| S10 | Packaging, CI and quality gates | S7b | Sonnet 5.5 / high | merged |
+| S11a | CLI: apply Protected Terms and style, shell completions | S10 | Sonnet 5.5 / high | in progress |
+| S11b | Core structure: split config, `non_exhaustive`, docs, licence files | S10 | Sonnet 5.5 / medium | in progress |
 
 At most 2 implementers run at once, and there is 1 reviewer (Codex).
 

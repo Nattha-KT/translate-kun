@@ -9,8 +9,8 @@
 ## Checklist
 
 - [ ] `cargo fmt --all --check` passes
-- [ ] `cargo clippy --workspace --all-targets --features kun/fake-provider -- -D warnings` passes
-- [ ] `cargo test --workspace --features kun/fake-provider` passes, and no test uses the network
+- [ ] `cargo clippy --workspace --all-targets --features translate-kun/fake-provider -- -D warnings` passes
+- [ ] `cargo test --workspace --features translate-kun/fake-provider` passes, and no test uses the network
 - [ ] Docs are updated (`README.md`, `docs/`) if behaviour or flags changed
 - [ ] `CHANGELOG.md` has an entry under `## [Unreleased]`
 - [ ] No secrets, real API keys or personal data in code, fixtures or docs (test keys contain `EXAMPLE` or `FAKE`)

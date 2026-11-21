@@ -5,7 +5,7 @@
 - `docs/requirements.md`: what to build. Your slice spec names the sections that matter; read only those.
 - `GLOSSARY.md`: canonical terms. Use them in code, comments and commit messages.
 - `docs/adr/`: decisions you must not silently reverse. If you have to contradict one, stop and say so in your report.
-- `docs/slices/<your-slice>.md`: your task, scope and acceptance criteria.
+- `docs/development/slices/<your-slice>.md`: your task, scope and acceptance criteria.
 
 ## Environment
 
@@ -23,7 +23,7 @@
   - no async
   - no macros of your own
   - no clever generics
-  - `anyhow` in the binary, `thiserror` in `kun-core`
+  - `thiserror` in `kun-core`; in the `kun` binary, map every failure to `CliError` (one place decides the exit code)
 - Workspace layout: `crates/kun-core` (logic, no terminal I/O) and `crates/kun` (CLI Adapter). Terminal I/O, prompts and process exit codes live only in `crates/kun`.
 - **No network in tests.** Use the fake Provider. Live tests go behind `--features live` only.
 - **Never** commit credentials, real API keys, or `.env` files. Test fixtures that look like secrets must be obviously fake (e.g. contain `EXAMPLE` or `FAKE`) and still exercise the detector.
@@ -43,8 +43,8 @@
 ## Definition of Done (every slice)
 
 1. `cargo fmt --all --check` passes.
-2. `cargo clippy --workspace --all-targets -- -D warnings` passes.
-3. `cargo test --workspace --features kun/fake-provider` passes. Clippy runs with the same feature.
+2. `cargo clippy --workspace --all-targets --features translate-kun/fake-provider -- -D warnings` passes.
+3. `cargo test --workspace --features translate-kun/fake-provider` passes.
 4. Code uses `GLOSSARY.md` terms and does not contradict any ADR.
 5. Changes are committed on your worktree branch with a Conventional Commit message (`feat:`, `fix:`, `chore:`, `test:`, `docs:`).
 

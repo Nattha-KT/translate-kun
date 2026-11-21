@@ -24,11 +24,11 @@ These are the checks every change must pass. CI runs the same commands on Linux 
 ```sh
 cargo build --workspace
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --features kun/fake-provider -- -D warnings
-cargo test --workspace --features kun/fake-provider
+cargo clippy --workspace --all-targets --features translate-kun/fake-provider -- -D warnings
+cargo test --workspace --features translate-kun/fake-provider
 ```
 
-The `kun/fake-provider` feature lets tests use an offline fake Provider (`--provider fake`) and an in-memory credential store. It is for tests only.
+The `translate-kun/fake-provider` feature lets tests use an offline fake Provider (`--provider fake`) and an in-memory credential store. It is for tests only.
 
 Live tests, which call real Provider APIs, are optional and never run in CI:
 
@@ -60,8 +60,8 @@ KUN_GOOGLE_API_KEY=... cargo test -p kun-core --features live
 The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) has the same list. Before you open a PR:
 
 - [ ] `cargo fmt --all --check` passes.
-- [ ] `cargo clippy --workspace --all-targets --features kun/fake-provider -- -D warnings` passes.
-- [ ] `cargo test --workspace --features kun/fake-provider` passes.
+- [ ] `cargo clippy --workspace --all-targets --features translate-kun/fake-provider -- -D warnings` passes.
+- [ ] `cargo test --workspace --features translate-kun/fake-provider` passes.
 - [ ] New behaviour has tests, and no test uses the network.
 - [ ] Docs are updated (`README.md`, `docs/`) if behaviour or flags changed.
 - [ ] `CHANGELOG.md` has an entry under `## [Unreleased]`.
