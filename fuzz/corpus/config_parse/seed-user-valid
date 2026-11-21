@@ -1,0 +1,12 @@
+target = "th"
+provider = "anthropic"
+timeout_secs = 30
+
+[providers.anthropic]
+model = "FAKE-model"
+
+[secret_guard]
+allow_secrets = false
+
+[credentials]
+anthropic_api_key = "FAKE-EXAMPLE-not-a-real-key"

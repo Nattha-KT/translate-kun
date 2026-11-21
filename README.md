@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Nattha-KT/translate-kun/actions/workflows/ci.yml/badge.svg)](https://github.com/Nattha-KT/translate-kun/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Nattha-KT/translate-kun/badge)](https://scorecard.dev/viewer/?uri=github.com/Nattha-KT/translate-kun)
 
 `kun` is a command-line translator for developers who work in the terminal. It is inspired by [Translate Shell](https://github.com/soimort/translate-shell), but it uses official, key-authenticated translation services instead of scraped web endpoints, so it does not break when a free endpoint changes. It reads text from arguments or stdin, detects the source language, and prints the translation on stdout, which makes it easy to use in pipes and scripts. Thai ↔ English is a first-class use case.
 
@@ -99,6 +100,12 @@ Details, every key and its default: [docs/configuration.md](docs/configuration.m
 - Malware already running as your user, a hostile operating system, debugger or memory access, and timing side channels.
 - The Secret Guard is a safety net, not a guarantee. It uses patterns, so it can miss a secret that has an unusual shape.
 - What the Provider does with your text. Read the privacy terms of the Provider you use.
+
+**Trust, and how to check it yourself**
+
+- [Privacy](docs/privacy.md): exactly what data leaves your machine (your text and your API key, to the Provider you chose, and nothing else), and how to verify it.
+- [Security](SECURITY.md): threat model, how to report a vulnerability, and the continuous checks (cargo-deny, Dependabot, fuzzing, OpenSSF Scorecard).
+- [Security audit](docs/security/audit-2026-11.md): the findings and their status. **The audit was performed by an AI model (Claude Opus 5.5), not by an independent professional security firm, and the project is pre-1.0 personal software.**
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
 

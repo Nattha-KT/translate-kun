@@ -1,0 +1,7 @@
+target
+artifacts
+coverage
+# The fuzzer writes new inputs into corpus/<target>/. Keep only the hand-made
+# seeds, which are named `seed-*`.
+corpus/*/*
+!corpus/*/seed-*

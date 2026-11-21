@@ -1,0 +1,10 @@
+target = "th"
+pair = ["en", "th"]
+provider = "google"
+protected_terms = ["translate-kun", "kun"]
+style = "casual"
+max_chars = 5000
+
+[secret_guard]
+force_redact = true
+extra_patterns = ["INTERNAL-[0-9]{6}"]
