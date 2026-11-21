@@ -150,7 +150,7 @@ impl fmt::Debug for FileCredentials {
 
 /// The validated content of one config file (Project Config or User Config).
 ///
-/// `Debug` hides free-text values (see [`Redacted`]).
+/// `Debug` hides free-text values (see `Redacted`).
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct FileConfig {
     pub target: Option<LanguageCode>,
@@ -213,7 +213,7 @@ pub struct Overrides {
 
 /// The final settings after merging CLI, Project Config, User Config and defaults.
 ///
-/// `Debug` hides free-text values (see [`Redacted`]).
+/// `Debug` hides free-text values (see `Redacted`).
 #[derive(Clone, PartialEq, Eq)]
 pub struct EffectiveConfig {
     pub target: Option<LanguageCode>,
@@ -871,7 +871,7 @@ model = "claude-haiku-5-5"
     }
 
     fn strings(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
+        items.iter().map(ToString::to_string).collect()
     }
 
     #[test]

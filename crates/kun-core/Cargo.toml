@@ -1,31 +1,40 @@
 [package]
-name = "kun-core"
-description = "Core logic for kun, the translate-kun CLI translator"
+name = "translate-kun-core"
+description = "Core logic for kun, the translate-kun CLI translator: Providers, Secret Guard, Protected Terms and config loading"
+keywords = ["translate", "translation", "cli", "thai", "i18n"]
+categories = ["command-line-utilities", "localization", "internationalization"]
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+# Test fixtures contain fake, secret-looking strings. Do not ship them.
+exclude = ["tests/"]
+
+# The package is `translate-kun-core`; the library keeps the short name so
+# `use kun_core::...` works everywhere.
+[lib]
+name = "kun_core"
 
 [dependencies]
-keyring = "4.2.0"
-# Not called directly. It caps the log level for the whole build: ureq-proto
-# logs raw request headers and bodies (API key, source text) at TRACE, so TRACE
-# must be compiled out. Feature unification applies this to every crate, and
-# the `release_` variant wins over any `release_max_level_trace` elsewhere.
-log = { version = "0.4.35", features = ["max_level_debug", "release_max_level_debug"] }
-regex = "1.13.2"
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
-thiserror = "2.0.21"
-toml = "1.2.1"
-ureq = { version = "3.5.2", features = ["json"] }
+keyring.workspace = true
+log.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+ureq.workspace = true
 
 [features]
 # Tests that call real Provider APIs. Never enabled in CI:
-# `cargo test -p kun-core --features live`
+# `cargo test -p translate-kun-core --features live`
 live = []
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-tempfile = "3.27.0"
+tempfile.workspace = true

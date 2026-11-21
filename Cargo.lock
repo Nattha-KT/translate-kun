@@ -975,35 +975,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kun"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "clap",
- "kun-core",
- "predicates",
- "rpassword",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "kun-core"
-version = "0.1.0"
-dependencies = [
- "keyring",
- "log",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "toml",
- "ureq",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1763,6 +1734,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "translate-kun"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "clap",
+ "predicates",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "translate-kun-core",
+]
+
+[[package]]
+name = "translate-kun-core"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "ureq",
 ]
 
 [[package]]

@@ -60,6 +60,8 @@ pub struct Cli {
     pub allow_secrets: bool,
 
     /// Replace possible secrets with [REDACTED] and continue
+    // The doc comment is also the `--help` text, so the brackets must stay.
+    #[allow(rustdoc::broken_intra_doc_links)]
     #[arg(long)]
     pub redact: bool,
 
@@ -204,7 +206,7 @@ mod tests {
     }
 
     fn words(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
+        items.iter().map(ToString::to_string).collect()
     }
 
     #[test]

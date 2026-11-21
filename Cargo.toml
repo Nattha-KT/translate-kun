@@ -5,7 +5,45 @@ members = ["crates/kun-core", "crates/kun"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# MSRV: the highest `rust-version` among our dependencies (uuid 1.29 and aes 0.9
+# need 1.89). The CI `msrv` job builds and tests on exactly this toolchain.
+rust-version = "1.89"
 license = "MIT OR Apache-2.0"
+authors = ["Nattha KT"]
+repository = "https://github.com/Nattha-KT/translate-kun"
+readme = "README.md"
+
+[workspace.dependencies]
+translate-kun-core = { path = "crates/kun-core", version = "0.1.0" }
+clap = { version = "4", features = ["derive"] }
+keyring = "4.2.0"
+# Not called directly. It caps the log level for the whole build: ureq-proto
+# logs raw request headers and bodies (API key, source text) at TRACE, so TRACE
+# must be compiled out. Feature unification applies this to every crate, and
+# the `release_` variant wins over any `release_max_level_trace` elsewhere.
+log = { version = "0.4.35", features = ["max_level_debug", "release_max_level_debug"] }
+regex = "1.13.2"
+rpassword = "7"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+toml = "1.2.1"
+ureq = { version = "3.5.2", features = ["json"] }
+# dev-dependencies
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3.27.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# Modest set: clippy's default groups plus a few readability lints from
+# `pedantic`. Do not enable all of `pedantic` or any of `restriction`.
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_closure_for_method_calls = "warn"
+manual_let_else = "warn"
+cloned_instead_of_copied = "warn"
+explicit_iter_loop = "warn"

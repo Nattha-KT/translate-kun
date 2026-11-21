@@ -69,7 +69,7 @@ pub fn kinds_summary(findings: &[Finding]) -> String {
             kinds.push(finding.kind);
         }
     }
-    let names: Vec<String> = kinds.iter().map(|kind| kind.to_string()).collect();
+    let names: Vec<String> = kinds.iter().map(ToString::to_string).collect();
     names.join(", ")
 }
 

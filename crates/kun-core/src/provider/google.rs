@@ -1,11 +1,11 @@
 //! The Google Cloud Translation Provider (Basic edition, v2 REST API).
 //!
 //! The HTTP call is thin. The parts worth testing are pure functions:
-//! [`request_body`], [`read_response`], [`parse_response`],
-//! [`error_for_status`] and [`transport_error`].
+//! `request_body`, `read_response`, `parse_response`,
+//! `error_for_status` and `transport_error`.
 //!
 //! Logging: `kun-core` caps the `log` crate at DEBUG for the whole build (see
-//! its `Cargo.toml`), because ureq-proto dumps raw headers and bodies at TRACE.
+//! the workspace `Cargo.toml`), because ureq-proto dumps raw headers and bodies at TRACE.
 //! At DEBUG, ureq redacts header values.
 
 use std::fmt;

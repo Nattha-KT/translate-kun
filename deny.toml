@@ -1,0 +1,33 @@
+# cargo-deny configuration: licences, advisories, duplicate versions, sources.
+# Run locally with `cargo deny check`. CI runs it in the `deny` job.
+
+[advisories]
+# Known vulnerabilities are always errors. Yanked crates are a warning.
+yanked = "warn"
+# Only fail on unmaintained crates that we depend on directly.
+unmaintained = "workspace"
+
+[licenses]
+confidence-threshold = 0.9
+# Allow-list. Add a licence here only after checking that it is permissive.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    # webpki-roots (Mozilla CA list, pulled in by ureq). Permissive data licence.
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
