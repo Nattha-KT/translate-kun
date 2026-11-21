@@ -16,6 +16,7 @@ readme = "README.md"
 [workspace.dependencies]
 translate-kun-core = { path = "crates/kun-core", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 keyring = "4.2.0"
 # Not called directly. It caps the log level for the whole build: ureq-proto
 # logs raw request headers and bodies (API key, source text) at TRACE, so TRACE

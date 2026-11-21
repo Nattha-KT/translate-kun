@@ -33,7 +33,8 @@ First public version, planned as 0.1.0.
 - Project Config (`.kun.toml`, created by `kun init`, found by walking up from the current directory) and User Config (`~/.config/kun/config.toml`).
 - Precedence: command-line flag, Project Config, User Config, built-in defaults.
 - Project Config is untrusted: it may not hold credentials, endpoints or `allow_secrets`, and may only make the Secret Guard stricter (ADR 0003).
-- Protected Terms and `style` settings are parsed and validated. The logic is in `kun-core`; the CLI does not apply them yet.
+- `protected_terms` is applied to every translation, including the Language Pair path. A lost term is a warning, not an error. `style` is passed to the Anthropic Provider (Google ignores it).
+- `kun completions <bash|zsh|fish|powershell|elvish>` prints a shell completion script.
 
 **Credentials**
 

@@ -54,7 +54,7 @@ Types: `string`, `integer`, `boolean`, `array`. "Both" means the key is allowed 
 | `[credentials]` `google_api_key` | string | none | **User only** | Google API key (a fallback, see below). |
 | `[credentials]` `anthropic_api_key` | string | none | **User only** | Anthropic API key (a fallback, see below). |
 
-> **Current limitations.** The keys `protected_terms`, `style` and `providers.<name>.endpoint` are accepted and validated, but the `kun` command does not act on them yet. Protected Terms and `style` are implemented in `kun-core` and will be wired in a later change. Custom endpoints are not used by any Provider yet.
+> **Current limitation.** The key `providers.<name>.endpoint` is accepted and validated, but custom endpoints are not used by any Provider yet.
 
 Settings with no CLI flag today: `pair`, `timeout_secs`, `protected_terms`, `style` and everything under `[secret_guard]` except `--redact` and `--allow-secrets`.
 

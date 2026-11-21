@@ -8,6 +8,7 @@ kun init [--force]
 kun auth login <google|anthropic>
 kun auth logout <google|anthropic>
 kun auth status
+kun completions <bash|zsh|fish|powershell|elvish>
 ```
 
 Run `kun --help` for the built-in help.
@@ -37,7 +38,7 @@ A bare word is always text, so `kun I love it` never reads `it` as Italian. An a
 
 You cannot give a language both ways. `kun :th -t fr "hi"` is a usage error (exit 2).
 
-If the text itself starts with `auth` or `init`, put `--` before it, because those words are subcommands:
+If the text itself starts with `auth`, `init` or `completions`, put `--` before it, because those words are subcommands:
 
 ```sh
 kun :th -- auth is great
@@ -137,9 +138,11 @@ A **Protected Term** is a word or phrase that must appear in the translation exa
 protected_terms = ["translate-kun", "Cargo.toml"]
 ```
 
-Matching is case-sensitive, and the longest term wins when terms overlap. `kun` swaps each term for a placeholder before sending the text and puts it back afterwards. If a Provider loses a placeholder, the translation is still returned with a warning.
+Matching is case-sensitive, and the longest term wins when terms overlap. `kun` swaps each term for a placeholder before sending the text and puts it back afterwards. This works with every Provider and with a Language Pair. If a Provider loses a placeholder, the translation is still returned with a warning (on stderr, or in `warnings` with `--json`). The warning never repeats the term.
 
-> **Current limitation:** the Protected Terms logic exists in `kun-core`, but the `kun` command does not apply the `protected_terms` setting yet (the key is accepted and validated). The same is true of `style`. This page will be updated when they are wired in.
+## Style
+
+`style` is a tone hint, set in a config file (for example `style = "casual, developer tone"`). Only the Anthropic Provider uses it. The Google Provider ignores it, silently. It can change the wording but never the meaning, and it is sent as data, not as instructions.
 
 ## Secret Guard
 
@@ -189,6 +192,26 @@ Where a key is looked up, first match wins:
 1. the environment variable (`KUN_GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`), intended for CI;
 2. the OS keychain;
 3. the `[credentials]` table of the User Config, only if that file is `0600` (see [configuration.md](configuration.md#credentials)).
+
+## `kun completions`
+
+Prints a completion script for your shell on stdout. `<shell>` is `bash`, `zsh`, `fish`, `powershell` or `elvish`.
+
+```sh
+kun completions bash
+```
+
+Install it once, then open a new shell:
+
+| Shell | Install |
+|---|---|
+| bash | `mkdir -p ~/.local/share/bash-completion/completions && kun completions bash > ~/.local/share/bash-completion/completions/kun` (or add `source <(kun completions bash)` to `~/.bashrc`) |
+| zsh | `mkdir -p ~/.zfunc && kun completions zsh > ~/.zfunc/_kun`, and put `fpath=(~/.zfunc $fpath)` before `compinit` in `~/.zshrc` |
+| fish | `kun completions fish > ~/.config/fish/completions/kun.fish` |
+| powershell | add `kun completions powershell \| Out-String \| Invoke-Expression` to your `$PROFILE` |
+| elvish | add `eval (kun completions elvish \| slurp)` to `~/.config/elvish/rc.elv` |
+
+`completions` is a subcommand like `auth` and `init`, so text that starts with it needs `--` first.
 
 ## Exit codes
 

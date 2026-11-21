@@ -15,15 +15,17 @@ Examples:
   kun I love it                translates \"I love it\" (`it` is never a language)
 
 A language is only recognised as the first argument in the form `:xx` or `xx:yy`.
-Text that starts with `auth` or `init` needs `--` first: kun :th -- auth is great
-Set up: `kun init` (Project Config), `kun auth login google` (API key).
+Text that starts with `auth`, `init` or `completions` needs `--` first: kun :th -- auth is great
+Set up: `kun init` (Project Config), `kun auth login google` (API key),
+`kun completions <shell>` (shell completions).
 Exit codes: 0 ok, 1 unexpected, 2 usage, 3 config, 4 missing credentials,
 5 network or provider, 6 blocked by the Secret Guard, 7 input too large.";
 
 /// A command-line translator for developers.
 ///
-/// `kun auth ...` and `kun init` are subcommands and win over the text. To
-/// translate text that starts with `auth` or `init`, put `--` before it.
+/// `kun auth ...`, `kun init` and `kun completions` are subcommands and win
+/// over the text. To translate text that starts with one of those words, put
+/// `--` before it.
 #[derive(Parser)]
 #[command(
     name = "kun",
@@ -82,6 +84,12 @@ pub enum Command {
         /// Overwrite an existing `.kun.toml`
         #[arg(long)]
         force: bool,
+    },
+    /// Print a shell completion script on stdout
+    Completions {
+        /// bash, zsh, fish, powershell or elvish
+        #[arg(value_name = "SHELL")]
+        shell: clap_complete::Shell,
     },
 }
 

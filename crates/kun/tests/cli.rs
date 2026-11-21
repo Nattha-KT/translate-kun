@@ -40,6 +40,53 @@ fn help_lists_the_options_and_exit_codes() {
 }
 
 #[test]
+fn completions_bash_prints_a_script_for_kun() {
+    Sandbox::new()
+        .kun()
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("kun"))
+        .stderr("");
+}
+
+#[test]
+fn completions_work_for_every_supported_shell() {
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        Sandbox::new()
+            .kun()
+            .args(["completions", shell])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("kun"));
+    }
+}
+
+#[test]
+fn completions_for_an_unknown_shell_exit_2() {
+    Sandbox::new()
+        .kun()
+        .args(["completions", "tcsh"])
+        .assert()
+        .code(2)
+        .stdout("");
+}
+
+#[test]
+fn text_that_starts_with_completions_needs_the_double_dash() {
+    // Same rule as `auth` and `init`: `--` makes it text again. Without a
+    // Target Language the translation then fails with a usage error (2),
+    // not with a completion script.
+    Sandbox::new()
+        .kun()
+        .args(["--", "completions", "are", "great"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("no Target Language"))
+        .stdout("");
+}
+
+#[test]
 fn unknown_provider_exits_2() {
     Sandbox::new()
         .kun()

@@ -25,6 +25,8 @@ fake-provider = []
 [dependencies]
 translate-kun-core.workspace = true
 clap.workspace = true
+# `kun completions <shell>`.
+clap_complete.workspace = true
 # Hidden key input for `kun auth login`.
 rpassword.workspace = true
 # `--json` output.
