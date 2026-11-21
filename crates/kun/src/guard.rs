@@ -63,6 +63,72 @@ pub fn run_secret_guard(
     }
 }
 
+/// What a real run would do with the text, for `--dry-run`. `Block` is not
+/// here: a blocked dry run is an error (exit 6), like a real run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DryDecision {
+    Send,
+    Redact,
+    /// A real run would ask the user first (interactive context only).
+    AskUser,
+}
+
+impl DryDecision {
+    pub fn label(self) -> &'static str {
+        match self {
+            DryDecision::Send => "send",
+            DryDecision::Redact => "redact",
+            DryDecision::AskUser => "ask",
+        }
+    }
+}
+
+/// The result of the Secret Guard in a dry run. No `Debug`: it is user text.
+pub struct DryGuarded {
+    /// The text a real run would send (after redaction), assuming that an
+    /// `AskUser` question would be answered "yes".
+    pub text: String,
+    pub decision: DryDecision,
+    /// Kinds and byte ranges in the original text, never the values.
+    pub findings: Vec<Finding>,
+}
+
+/// The Secret Guard for `--dry-run`: the same scan and decision as
+/// [`run_secret_guard`], but it never asks. A decision to block is the same
+/// error as in a real run.
+pub fn dry_run_secret_guard(
+    text: String,
+    settings: &SecretGuardSettings,
+    interactive: bool,
+) -> Result<DryGuarded, CliError> {
+    let guard = SecretGuard::new(&settings.extra_patterns).map_err(CliError::ExtraPattern)?;
+    let findings = guard.scan(&text);
+    let policy = GuardPolicy {
+        allow_secrets: settings.allow_secrets,
+        force_redact: settings.force_redact,
+    };
+
+    match decide(&findings, policy, interactive) {
+        Decision::Send => Ok(DryGuarded {
+            text,
+            decision: DryDecision::Send,
+            findings,
+        }),
+        Decision::Redact => Ok(DryGuarded {
+            text: redact(&text, &findings),
+            decision: DryDecision::Redact,
+            findings,
+        }),
+        Decision::AskUser => Ok(DryGuarded {
+            text,
+            decision: DryDecision::AskUser,
+            findings,
+        }),
+        // `Block`, and any decision added later: do not pretend it would be sent.
+        _ => Err(CliError::SecretBlocked(findings)),
+    }
+}
+
 /// The kinds found, each once, e.g. `AWS access key, JWT`.
 pub fn kinds_summary(findings: &[Finding]) -> String {
     let mut kinds: Vec<SecretKind> = Vec::new();
@@ -203,6 +269,35 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(error.exit_code(), 6);
+    }
+
+    #[test]
+    fn dry_run_decisions_match_a_real_run_and_never_ask() {
+        // Interactive: a real run would ask; the dry run shows the text as if "yes".
+        let ask = dry_run_secret_guard(text(), &settings(false, false), true).unwrap();
+        assert_eq!(ask.decision, DryDecision::AskUser);
+        assert_eq!(ask.text, text());
+        assert_eq!(ask.findings.len(), 1);
+
+        let redact = dry_run_secret_guard(text(), &settings(false, true), false).unwrap();
+        assert_eq!(redact.decision, DryDecision::Redact);
+        assert_eq!(redact.text, "my key is [REDACTED] ok");
+
+        let send = dry_run_secret_guard(text(), &settings(true, false), false).unwrap();
+        assert_eq!(send.decision, DryDecision::Send);
+
+        let clean = dry_run_secret_guard("hello".into(), &settings(false, false), false).unwrap();
+        assert_eq!(clean.decision, DryDecision::Send);
+        assert!(clean.findings.is_empty());
+    }
+
+    #[test]
+    fn dry_run_blocks_like_a_real_run_without_showing_the_key() {
+        let error = dry_run_secret_guard(text(), &settings(false, false), false)
+            .err()
+            .unwrap();
+        assert_eq!(error.exit_code(), 6);
+        assert!(!error.to_string().contains(KEY));
     }
 
     #[test]

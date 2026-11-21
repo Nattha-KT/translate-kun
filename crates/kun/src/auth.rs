@@ -40,7 +40,7 @@ pub enum KeySource {
 }
 
 impl KeySource {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             KeySource::Env => "env",
             KeySource::Keychain => "keychain",
