@@ -18,6 +18,8 @@ jobs:
     name: CodeQL (rust)
     runs-on: ubuntu-latest
     permissions:
+      # A job-level block replaces the workflow-level one, so checkout needs this.
+      contents: read
       # Upload the results to the code scanning tab.
       security-events: write
     steps:

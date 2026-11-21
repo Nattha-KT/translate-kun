@@ -14,7 +14,7 @@
 
 A `.kun.toml` lives in a directory tree that may have been cloned from someone else. If it could set an endpoint or a key, running `kun` inside a malicious repository could send your text and your API key to an attacker. So a Project Config may only choose among the built-in Providers and may only make the Secret Guard **stricter**. Anything that sends data somewhere new, or weakens a safety check, belongs in the User Config or on the command line. See [ADR 0003](adr/0003-project-config-is-untrusted.md).
 
-On Unix, a `.kun.toml` that is owned by a different user than the one running `kun` is **skipped**: `kun` prints `ignoring <path>: owned by another user` as a warning and carries on with the User Config and defaults (this is not an error). It works like git's `safe.directory`, so a file planted in a shared directory is not loaded. Your own files are loaded as usual, and there is no such check on other platforms.
+On Unix, a `.kun.toml` that is owned by a different user than the one running `kun` is **skipped**: `kun` prints `ignoring .kun.toml: owned by another user` as a warning (without the path, which can hold text you chose) and carries on with the User Config and defaults (this is not an error). It works like git's `safe.directory`, so a file planted in a shared directory is not loaded. Your own files are loaded as usual, and there is no such check on other platforms.
 
 ## Precedence
 
