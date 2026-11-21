@@ -12,7 +12,7 @@ Each slice is one unit of work for one implementer, reviewed by one reviewer, ap
 | S5 | CLI: syntax, stdin, Language Pair, Secret Guard flow, output, exit codes | S1, S2, S3 | Sonnet 5.5 / high | merged |
 | S6 | Anthropic Provider + Protected Terms (core) | S4, S5 | Sonnet 5.5 / high | merged |
 | S7 | Google wiring, `kun auth`, `kun init`, `--json` (CLI) | S4, S5 | Sonnet 5.5 / medium | merged |
-| S7b | Anthropic CLI wiring | S6, S7 | Sonnet 5.5 / low | in progress |
+| S7b | Anthropic CLI wiring | S6, S7 | Sonnet 5.5 / low | merged |
 | S8 | Release: cargo-dist, Homebrew | S7 | Sonnet 5.5 / medium | deferred: owner chose not to publish yet (2026-11-21) |
 
 At most 2 implementers run at once, and there is 1 reviewer (Codex).
