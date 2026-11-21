@@ -1,0 +1,57 @@
+name: Bug report
+description: Something does not work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug.
+
+        **Never paste API keys or private text.** Replace them with obviously fake values. To report a security problem, use the Security tab ("Report a vulnerability") instead of this form.
+  - type: input
+    id: version
+    attributes:
+      label: Output of `kun --version`
+      placeholder: "kun 0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15, Ubuntu 24.04, ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - google
+        - anthropic
+        - not relevant
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact command you ran (with fake text), and any relevant config keys (never keys or credentials).
+      placeholder: |
+        1. kun :th "hello"
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include the error message and the exit code (`echo $?`). Remove any private text first.
+    validations:
+      required: true
