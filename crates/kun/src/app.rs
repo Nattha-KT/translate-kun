@@ -4,9 +4,12 @@
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
+use clap::CommandFactory;
 use kun_core::config::Overrides;
 use kun_core::language::LanguageCode;
-use kun_core::translate::{TargetPlan, TranslateError, resolve_target, translate};
+use kun_core::translate::{
+    TargetPlan, TranslateError, Translated, resolve_target, translate_with_terms,
+};
 
 use crate::args::{AuthAction, Cli, Command, LanguageSpec, split_positionals};
 use crate::auth::{self, open_store};
@@ -28,6 +31,15 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
             init_in(&dir, force)?;
             println!("Created .kun.toml");
             return Ok(());
+        }
+        Some(Command::Completions { shell }) => {
+            // Build the script in memory first: `generate` panics if stdout is
+            // a closed pipe, while `write_stdout` treats that as success.
+            let mut script: Vec<u8> = Vec::new();
+            clap_complete::generate(shell, &mut Cli::command(), "kun", &mut script);
+            let script = String::from_utf8(script)
+                .map_err(|_| CliError::Unexpected("cannot build the completion script"))?;
+            return write_stdout(&script);
         }
         Some(Command::Auth { action }) => {
             // Only `status` needs the User Config (for its `[credentials]`),
@@ -134,14 +146,18 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         user_file: user_credentials.as_ref(),
     };
     let provider = build_provider(provider_name, &config, &sources)?;
-    let translated = translate(&*provider, &guarded.text, source.clone(), plan.clone())?;
+    let translated = translate_with_terms(
+        &*provider,
+        &guarded.text,
+        source.clone(),
+        plan.clone(),
+        &config.protected_terms,
+    )?;
 
     // 7. Output: the translation on stdout, everything else on stderr
     //    (or, with `--json`, one JSON object on stdout).
+    add_translation_warnings(&mut warnings, &translated);
     let translation = translated.translation;
-    if translated.same_language {
-        warnings.add("the text is already in the Target Language; returned unchanged");
-    }
     if cli.json {
         let source_used = translation.detected_source.clone().or(source);
         let target = final_target(&plan, source_used.as_ref());
@@ -202,6 +218,19 @@ impl Warnings {
     }
 }
 
+/// Warnings that come from the translation itself. The translation still
+/// succeeds; the text of a lost term is never put in the message.
+fn add_translation_warnings(warnings: &mut Warnings, translated: &Translated) {
+    if translated.same_language {
+        warnings.add("the text is already in the Target Language; returned unchanged");
+    }
+    if translated.protected_terms_missing {
+        warnings.add(
+            "the Provider dropped a Protected Term, so it could not be restored in the translation",
+        );
+    }
+}
+
 /// The Target Language that was used. For a Language Pair this is the
 /// language the text was not in (the Provider chose, so it is derived again).
 fn final_target(plan: &TargetPlan, source: Option<&LanguageCode>) -> String {
@@ -251,5 +280,47 @@ fn write_stdout(text: &str) -> Result<(), CliError> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
         Err(_) => Err(CliError::Unexpected("cannot write to standard output")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kun_core::provider::Translation;
+
+    fn translated(same_language: bool, protected_terms_missing: bool) -> Translated {
+        Translated {
+            translation: Translation {
+                text: "FAKE text".to_string(),
+                detected_source: None,
+                provider: "fake",
+            },
+            same_language,
+            protected_terms_missing,
+        }
+    }
+
+    #[test]
+    fn a_lost_protected_term_becomes_a_warning_without_the_term() {
+        // `--json` mode collects the warnings, so they can be inspected.
+        let mut warnings = Warnings::new(true);
+        add_translation_warnings(&mut warnings, &translated(false, true));
+        let list = warnings.into_list();
+        assert_eq!(list.len(), 1);
+        assert!(list[0].contains("Protected Term"));
+    }
+
+    #[test]
+    fn a_clean_translation_has_no_warnings() {
+        let mut warnings = Warnings::new(true);
+        add_translation_warnings(&mut warnings, &translated(false, false));
+        assert!(warnings.into_list().is_empty());
+    }
+
+    #[test]
+    fn same_language_still_warns() {
+        let mut warnings = Warnings::new(true);
+        add_translation_warnings(&mut warnings, &translated(true, false));
+        assert_eq!(warnings.into_list().len(), 1);
     }
 }

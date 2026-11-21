@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use kun_core::config::{EffectiveConfig, FileCredentials, ProviderName};
-use kun_core::credentials::{CredentialStore, env_var_name, resolve_credential};
+use kun_core::credentials::{CredentialStore, Secret, env_var_name, resolve_credential};
 use kun_core::provider::Provider;
 use kun_core::provider::anthropic::{AnthropicProvider, DEFAULT_MODEL};
 use kun_core::provider::google::GoogleProvider;
@@ -75,18 +75,24 @@ pub fn build_provider(
             )
             .map_err(|error| CliError::keychain(error, env_var_name(ProviderName::Anthropic)))?
             .ok_or(CliError::NoAnthropicKey)?;
-            let model = config
-                .providers
-                .get(&ProviderName::Anthropic)
-                .and_then(|settings| settings.model.clone())
-                .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-            let timeout = Duration::from_secs(config.timeout_secs);
-            Ok(Box::new(AnthropicProvider::new(key, model, timeout)))
+            Ok(Box::new(anthropic_from_config(key, config)))
         }
         _ => Err(CliError::Usage(
             "unknown provider: use `google` or `anthropic`",
         )),
     }
+}
+
+/// The Anthropic Provider with the model, timeout and `style` of the config.
+/// (Google has no use for `style`, so it is not passed there.)
+fn anthropic_from_config(key: Secret, config: &EffectiveConfig) -> AnthropicProvider {
+    let model = config
+        .providers
+        .get(&ProviderName::Anthropic)
+        .and_then(|settings| settings.model.clone())
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    let timeout = Duration::from_secs(config.timeout_secs);
+    AnthropicProvider::new(key, model, timeout).with_style(config.style.clone())
 }
 
 #[cfg(feature = "fake-provider")]
@@ -104,8 +110,9 @@ fn build_fake() -> Result<Box<dyn Provider>, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kun_core::config::FileConfig;
     use kun_core::config::{Overrides, merge};
-    use kun_core::credentials::{MemoryStore, Secret};
+    use kun_core::credentials::MemoryStore;
 
     fn config() -> EffectiveConfig {
         merge(&Overrides::default(), None, None)
@@ -198,6 +205,25 @@ mod tests {
             .unwrap();
         let provider = build("anthropic", &store).unwrap();
         assert_eq!(provider.name(), "anthropic");
+    }
+
+    #[test]
+    fn anthropic_receives_the_style_from_the_config() {
+        let file = FileConfig {
+            style: Some("casual, developer tone".into()),
+            ..FileConfig::default()
+        };
+        let with_style = merge(&Overrides::default(), Some(&file), None);
+        let key = || Secret::new("sk-ant-FAKE-EXAMPLE".into());
+
+        // `Debug` shows only whether a style is set, never its text.
+        let provider = anthropic_from_config(key(), &with_style);
+        let shown = format!("{provider:?}");
+        assert!(shown.contains("style: Some(\"<redacted>\")"), "{shown}");
+        assert!(!shown.contains("casual"));
+
+        let provider = anthropic_from_config(key(), &config());
+        assert!(format!("{provider:?}").contains("style: None"));
     }
 
     #[test]

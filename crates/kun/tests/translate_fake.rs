@@ -231,6 +231,65 @@ fn language_pair_thai_goes_to_the_first_language() {
 }
 
 #[test]
+fn protected_terms_from_the_project_config_stay_verbatim() {
+    let sandbox = Sandbox::new();
+    sandbox.write_project_config("protected_terms = [\"translate-kun\"]");
+    sandbox
+        .kun()
+        .args(["--provider", "fake", ":th", "use translate-kun now"])
+        .assert()
+        .success()
+        .stdout("[th] use translate-kun now\n")
+        .stderr(predicate::str::contains("Protected Term").not());
+}
+
+#[test]
+fn protected_terms_work_on_the_language_pair_path() {
+    let sandbox = Sandbox::new();
+    sandbox.write_project_config("pair = [\"en\", \"th\"]\nprotected_terms = [\"translate-kun\"]");
+    sandbox
+        .kun()
+        .args(["--provider", "fake", "use translate-kun now"])
+        .assert()
+        .success()
+        .stdout("[th] use translate-kun now\n");
+}
+
+#[test]
+fn protected_terms_are_swapped_out_before_the_provider_sees_the_text() {
+    // The fake Provider detects Thai from the text it receives. Without
+    // protection, "สวัสดี" is Thai, so a en/th pair sends it to `en`. With the
+    // term protected, the Provider only sees a placeholder (English), so the
+    // text goes to `th`, and the term is put back afterwards.
+    let sandbox = Sandbox::new();
+    sandbox.write_project_config("pair = [\"en\", \"th\"]\nprotected_terms = [\"สวัสดี\"]");
+    sandbox
+        .kun()
+        .args(["--provider", "fake", "สวัสดี"])
+        .assert()
+        .success()
+        .stdout("[th] สวัสดี\n");
+}
+
+#[test]
+fn protected_terms_are_applied_with_json_output_too() {
+    let sandbox = Sandbox::new();
+    sandbox.write_project_config("protected_terms = [\"translate-kun\"]");
+    sandbox
+        .kun()
+        .args([
+            "--provider",
+            "fake",
+            "--json",
+            ":th",
+            "use translate-kun now",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[th] use translate-kun now"));
+}
+
+#[test]
 fn explicit_target_beats_a_language_pair() {
     let sandbox = Sandbox::new();
     sandbox.write_project_config("pair = [\"en\", \"th\"]");
