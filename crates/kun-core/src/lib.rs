@@ -1,4 +1,26 @@
-//! Core logic for `kun`. No terminal I/O lives here.
+//! Core logic for `kun`, the translate-kun CLI translator. No terminal I/O
+//! lives here.
+//!
+//! The crate holds the Providers, the Secret Guard, Protected Terms, config
+//! loading and the translation flow. The `kun` binary is a thin CLI Adapter
+//! on top of it.
+//!
+//! # Example
+//!
+//! Translate a text with the offline `FakeProvider`:
+//!
+//! ```
+//! use kun_core::provider::fake::FakeProvider;
+//! use kun_core::translate::{translate, TargetPlan};
+//!
+//! let provider = FakeProvider::new();
+//! let target = "th".parse().unwrap();
+//! let result = translate(&provider, "hello", None, TargetPlan::Fixed(target)).unwrap();
+//!
+//! assert_eq!(result.translation.text, "[th] hello");
+//! ```
+
+#![warn(missing_docs)]
 
 pub mod config;
 pub mod credentials;

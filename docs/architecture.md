@@ -22,7 +22,13 @@ Other constraints (see [AGENTS.md](../AGENTS.md)): no async (the HTTP client is 
 | Module | Responsibility |
 |---|---|
 | `language` | `LanguageCode`: a validated `xx` or `xx-YY` code. |
-| `config` | Loads the Project Config and User Config, enforces the trust rules ([ADR 0003](adr/0003-project-config-is-untrusted.md)), and merges layers into an `EffectiveConfig`. Also `ProviderName`, `LanguagePair`. |
+| `config` | A directory of small modules. Public paths stay `kun_core::config::X` (everything is re-exported from `config/mod.rs`). It loads the Project Config and User Config, enforces the trust rules ([ADR 0003](adr/0003-project-config-is-untrusted.md)), and merges layers into an `EffectiveConfig`. |
+| `config/schema.rs` | The config types: `FileConfig`, `EffectiveConfig`, `Overrides`, `ProviderName`, `LanguagePair`, `ProviderSettings`, `SecretGuardSettings`, `FileCredentials`. `Debug` hides free-text values. |
+| `config/error.rs` | `ConfigError`. Messages hold paths and key names, never values. |
+| `config/load.rs` | Reads and validates files (`load_project_config`, `load_user_config`) and checks the `0600` permission for `[credentials]`. |
+| `config/trust.rs` | The Project Config forbidden keys (ADR 0003): `endpoint`, `allow_secrets`, credential-like names. |
+| `config/merge.rs` | `merge`: CLI > Project > User > defaults, and the tighten-only security fields. |
+| `config/discover.rs` | `find_project_config` (walk up for `.kun.toml`) and `user_config_path` (XDG or `~/.config`). |
 | `credentials` | `Secret` (a value that never prints), the `CredentialStore` trait with `KeyringStore` (OS keychain) and `MemoryStore` (tests), and `resolve_credential` (env → keychain → User Config file). |
 | `secret_guard` | Finds possible secrets (`SecretGuard::scan`), decides what to do (`decide`), and redacts (`redact`). Findings hold a kind and a byte range, never the value. |
 | `protected_terms` | `protect` swaps terms for placeholders; `restore` puts them back after translation. |
@@ -84,7 +90,7 @@ Say you are adding a Provider called `deepl`.
 1. **Implement it in `kun-core`.** Create `crates/kun-core/src/provider/deepl.rs` and add `pub mod deepl;` in `provider.rs`. Write a struct that holds the credential (a `Secret`) and the timeout, and implement `Provider` for it. Use `ureq` with the timeout, and honour `HTTPS_PROXY` and `NO_PROXY` like the existing Providers.
 2. **Map every failure to a `ProviderError`.** Turn transport errors and HTTP statuses into fixed categories. Never put a URL, header or response body in an error. Look at `google.rs` for the pattern.
 3. **Keep secrets out of output.** The credential must not appear in a URL query, a log line, or `Debug` output. Write a manual `Debug` that prints `<redacted>` for anything that may hold user text or a key.
-4. **Register the name.** In `config.rs`, add a `ProviderName` variant and include it in `ProviderName::ALL`. In `credentials.rs`, add its environment variable to `env_var_name`, and make the credential lookup cover it.
+4. **Register the name.** In `config/schema.rs`, add a `ProviderName` variant and include it in `ProviderName::ALL`. In `credentials.rs`, add its environment variable to `env_var_name`, and make the credential lookup cover it.
 5. **Wire it into the CLI.** In `crates/kun/src/providers.rs`, add it to `provider_label` and add a match arm in `build_provider` that resolves the credential and builds your Provider. Add the matching "no key found" `CliError` variant (exit code 4) in `error.rs` if it needs its own message.
 6. **Test it without the network** (see below): parse a recorded sample response, and check error mapping and that a fake key never appears in `{:?}` or `{:#?}`.
 7. **Document it.** Update [usage.md](usage.md) (the Providers table), [configuration.md](configuration.md) and the `CHANGELOG.md`. A new Provider that sends text to a new company should also be mentioned in the README's security section.

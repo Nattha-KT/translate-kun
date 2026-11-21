@@ -11,10 +11,13 @@ const MAX_LEN: usize = 8;
 /// Why a string was rejected as a [`LanguageCode`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum LanguageCodeError {
+    /// The input was an empty string.
     #[error("language code is empty")]
     Empty,
+    /// The input was longer than any valid code.
     #[error("language code is too long")]
     TooLong,
+    /// The input is not `xx` or `xx-YY` made of letters.
     #[error("invalid language code: expected `xx` or `xx-YY` (letters only)")]
     Invalid,
 }

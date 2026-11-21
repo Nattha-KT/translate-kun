@@ -112,6 +112,8 @@ impl CliError {
             ConfigError::Invalid { key, .. } => ConfigProblem::InvalidValue {
                 field: known_field(key),
             },
+            // `ConfigError` is `#[non_exhaustive]`.
+            _ => ConfigProblem::Unparsable,
         };
         CliError::Config { file, problem }
     }
@@ -141,6 +143,8 @@ impl CliError {
         match error {
             CredentialError::StoreUnavailable => CliError::KeychainUnavailable { env_var },
             CredentialError::StoreFailed => CliError::KeychainFailed,
+            // `CredentialError` is `#[non_exhaustive]`.
+            _ => CliError::KeychainFailed,
         }
     }
 }
@@ -152,6 +156,8 @@ impl From<TranslateError> for CliError {
                 "no Target Language: use `:xx`, `-t xx`, or set `target` or `pair` in a config file",
             ),
             TranslateError::Provider(error) => CliError::Provider(error),
+            // `TranslateError` is `#[non_exhaustive]`.
+            _ => CliError::Unexpected("translation failed"),
         }
     }
 }

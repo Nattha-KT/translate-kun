@@ -16,7 +16,8 @@
 //! match decide(&findings, policy, false) {
 //!     Decision::Send => { /* send `text` */ }
 //!     Decision::Redact => { let _safe = redact(text, &findings); }
-//!     Decision::AskUser | Decision::Block => { /* handled by the CLI */ }
+//!     // `Decision` is `#[non_exhaustive]`, so outside this crate a `_` arm is required.
+//!     _ => { /* AskUser, Block or a future decision: handled by the CLI */ }
 //! }
 //! ```
 
@@ -30,14 +31,23 @@ pub const REDACTED: &str = "[REDACTED]";
 
 /// What kind of credential a [`Finding`] looks like.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SecretKind {
+    /// An AWS access key ID.
     AwsAccessKey,
+    /// A GitHub token.
     GitHubToken,
+    /// An Anthropic API key.
     AnthropicApiKey,
+    /// An OpenAI API key.
     OpenAiApiKey,
+    /// A Google API key.
     GoogleApiKey,
+    /// A Slack token.
     SlackToken,
+    /// A PEM private key block.
     PrivateKeyBlock,
+    /// A JSON Web Token.
     Jwt,
     /// Matched one of the extra patterns given to [`SecretGuard::new`].
     Custom,
@@ -66,6 +76,7 @@ impl fmt::Display for SecretKind {
 /// printing a `Finding` (with `{}` or `{:?}`) can never leak the secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// What kind of credential the match looks like.
     pub kind: SecretKind,
     /// Byte range of the match inside the scanned text.
     pub range: Range<usize>,
@@ -81,6 +92,7 @@ impl fmt::Display for Finding {
     }
 }
 
+/// Why a [`SecretGuard`] could not be built.
 #[derive(Debug, thiserror::Error)]
 pub enum SecretGuardError {
     /// An extra pattern is not a valid regular expression.
@@ -90,7 +102,10 @@ pub enum SecretGuardError {
     /// message quotes the pattern): a user may have pasted a real key as a
     /// pattern, and this error may be printed.
     #[error("extra secret pattern #{index} is not a valid regex")]
-    InvalidPattern { index: usize },
+    InvalidPattern {
+        /// Position of the bad pattern in the `extra` list (0-based).
+        index: usize,
+    },
 }
 
 /// The built-in, high-precision patterns. They are always active: there is
@@ -488,6 +503,7 @@ pub struct GuardPolicy {
 
 /// What to do with the outgoing text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Decision {
     /// Send the text as it is.
     Send,

@@ -19,6 +19,7 @@ use crate::config::ProviderName;
 pub struct Secret(String);
 
 impl Secret {
+    /// Wraps a raw credential value.
     pub fn new(value: String) -> Self {
         Secret(value)
     }
@@ -47,6 +48,7 @@ impl fmt::Display for Secret {
 /// Only fixed messages: the errors of the underlying keychain library can
 /// contain the stored bytes, so they are never kept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum CredentialError {
     /// There is no usable keychain on this machine (e.g. no Secret Service).
     #[error("the OS keychain is not available")]
@@ -86,6 +88,7 @@ fn account_name(provider: ProviderName) -> &'static str {
 pub struct KeyringStore;
 
 impl KeyringStore {
+    /// A handle to the OS keychain. Nothing is read until you call `get`.
     pub fn new() -> Self {
         KeyringStore
     }
@@ -141,6 +144,7 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
+    /// An empty store.
     pub fn new() -> Self {
         MemoryStore::default()
     }
