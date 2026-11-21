@@ -18,10 +18,15 @@ Each slice is one unit of work for one implementer, reviewed by one reviewer, ap
 | S10 | Packaging, CI and quality gates | S7b | Sonnet 5.5 / high | merged |
 | S11a | CLI: apply Protected Terms and style, shell completions | S10 | Sonnet 5.5 / high | merged |
 | S11b | Core structure: split config, `non_exhaustive`, docs, licence files | S10 | Sonnet 5.5 / medium | merged |
+| S12 | Security audit fixes | S11 | Opus 5.5 / high | merged |
+| S13 | Trust and transparency: `--dry-run`, privacy doc, audit report, fuzzing, Scorecard | S12 | Sonnet 5.5 / high | in progress |
 
 At most 2 implementers run at once, and there is 1 reviewer (Codex).
 
 ## Follow-ups
+
+- **Secret Guard (from the S12 re-check):** an AWS key ID followed directly by `_` (`AKIA…12345_old`) is not detected, because of the trailing boundary. `aws configure set aws_secret_access_key <value>`, which is space-separated with no `=` or `:`, is not detected either. Both are rare; they were accepted.
+- **Security audit nits deferred:** N-1 (no ownership check on a discovered `.kun.toml`), N-2 (document that a repo can pick the Provider and model), N-6 (`KUNPT` placeholder collision only garbles output), N-8 (pin actions by SHA).
 
 - **Secret Guard:** a truncated PEM block inside JSON whose last base64 line ends with a closing quote (`Zg=="`) is not fully redacted. This is rare, because JSON-embedded keys normally include the END line. Accepted at the S1 merge.
 - **Accepted trade-offs at the S4/S5 merge:**

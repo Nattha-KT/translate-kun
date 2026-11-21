@@ -28,11 +28,11 @@ This is a personal project, so the response is **best effort**. You can normally
 - The user's text leaking to a service they did not choose: there is no automatic Provider fallback, no telemetry, no cache and no history of source or translated text.
 - Credentials in the text being sent. The Secret Guard checks outgoing text first (prompt on a terminal, block in scripts).
 - Terminal escape sequences in a translation. On a terminal, control characters other than newline and tab are stripped from the Provider's output.
+- A malicious repository: a cloned Project Config cannot hold credentials or endpoints and cannot weaken the Secret Guard ([ADR 0003](docs/adr/0003-project-config-is-untrusted.md)).
 
 **Your part**
 
 - Text you pass as arguments (`kun :th "my private note"`) is saved in your shell history and is visible to other local users in `ps` while `kun` runs. Send sensitive text through stdin instead: `kun :th < note.txt` or `pbpaste | kun :th`.
-- A malicious repository: a cloned Project Config cannot hold credentials or endpoints and cannot weaken the Secret Guard ([ADR 0003](docs/adr/0003-project-config-is-untrusted.md)).
 
 **Out of scope**
 
