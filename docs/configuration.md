@@ -54,7 +54,7 @@ Types: `string`, `integer`, `boolean`, `array`. "Both" means the key is allowed 
 | `[credentials]` `google_api_key` | string | none | **User only** | Google API key (a fallback, see below). |
 | `[credentials]` `anthropic_api_key` | string | none | **User only** | Anthropic API key (a fallback, see below). |
 
-> **Current limitation.** The key `providers.<name>.endpoint` is accepted and validated, but custom endpoints are not used by any Provider yet.
+> **Current limitation.** Custom endpoints are not supported by any Provider yet. The key `providers.<name>.endpoint` is accepted and validated, but if it is set for the Provider you use, `kun` stops with exit 3 (`providers.<name>.endpoint is not supported yet; remove it to use the public API.`) instead of silently sending your text to the public API.
 
 Settings with no CLI flag today: `pair`, `timeout_secs`, `protected_terms`, `style` and everything under `[secret_guard]` except `--redact` and `--allow-secrets`.
 
@@ -92,6 +92,12 @@ The `[credentials]` table is used **only if the User Config file is readable by 
 - `kun auth status` reports that the config-file credentials were ignored.
 
 The rest of the file (target, provider and so on) is still used. File modes are checked on Unix only.
+
+## Proxies
+
+Proxies are set with environment variables, not in a config file. `kun` honours `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` (and their lower-case forms). If more than one proxy variable is set, the first of `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` wins.
+
+Provider requests are always HTTPS, so they go through the proxy with `CONNECT`: the proxy sees only the host name, and the API key and your text stay inside TLS. A proxy URL may hold a user name and password; `kun` never prints it.
 
 ## Example
 

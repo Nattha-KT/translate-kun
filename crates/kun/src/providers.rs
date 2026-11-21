@@ -57,6 +57,7 @@ pub fn build_provider(
     match name {
         "fake" => build_fake(),
         "google" => {
+            reject_endpoint(ProviderName::Google, config)?;
             let key = resolve_credential(
                 ProviderName::Google,
                 sources.env,
@@ -69,6 +70,7 @@ pub fn build_provider(
             Ok(Box::new(GoogleProvider::new(key, timeout)))
         }
         "anthropic" => {
+            reject_endpoint(ProviderName::Anthropic, config)?;
             let key = resolve_credential(
                 ProviderName::Anthropic,
                 sources.env,
@@ -83,6 +85,18 @@ pub fn build_provider(
             "unknown provider: use `google` or `anthropic`",
         )),
     }
+}
+
+/// Custom endpoints are not built yet. Ignoring one would send the text to
+/// the public API when the user expected it to stay elsewhere (for example a
+/// local server), so a configured endpoint is an error instead.
+fn reject_endpoint(name: ProviderName, config: &EffectiveConfig) -> Result<(), CliError> {
+    if config.provider_settings(name).endpoint.is_some() {
+        return Err(CliError::EndpointNotSupported {
+            provider: provider_label(name),
+        });
+    }
+    Ok(())
 }
 
 /// The Anthropic Provider with the model, timeout and `style` of the config.
@@ -112,7 +126,7 @@ fn build_fake() -> Result<Box<dyn Provider>, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kun_core::config::FileConfig;
+    use kun_core::config::{FileConfig, ProviderSettings};
     use kun_core::config::{Overrides, merge};
     use kun_core::credentials::MemoryStore;
 
@@ -226,6 +240,67 @@ mod tests {
 
         let provider = anthropic_from_config(key(), &config());
         assert!(format!("{provider:?}").contains("style: None"));
+    }
+
+    /// A config whose User Config sets an endpoint for `name`.
+    fn config_with_endpoint(name: ProviderName) -> EffectiveConfig {
+        let mut user = FileConfig::default();
+        user.providers.insert(
+            name,
+            ProviderSettings {
+                model: None,
+                endpoint: Some("http://localhost:11434".into()),
+            },
+        );
+        merge(&Overrides::default(), None, Some(&user))
+    }
+
+    #[test]
+    fn a_configured_endpoint_fails_closed_with_exit_3() {
+        let mut store = MemoryStore::new();
+        store
+            .set(ProviderName::Google, &Secret::new("AIzaFAKE".into()))
+            .unwrap();
+        store
+            .set(
+                ProviderName::Anthropic,
+                &Secret::new("sk-ant-FAKE-EXAMPLE".into()),
+            )
+            .unwrap();
+        let sources = CredentialSources {
+            env: &no_env,
+            store: &store,
+            user_file: None,
+        };
+        for (name, label) in [
+            (ProviderName::Google, "google"),
+            (ProviderName::Anthropic, "anthropic"),
+        ] {
+            let config = config_with_endpoint(name);
+            let error = build_provider(label, &config, &sources).err().unwrap();
+            assert_eq!(error.exit_code(), 3, "{label}");
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "providers.{label}.endpoint is not supported yet; remove it to use the public API."
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn an_endpoint_for_another_provider_does_not_matter() {
+        let mut store = MemoryStore::new();
+        store
+            .set(ProviderName::Google, &Secret::new("AIzaFAKE".into()))
+            .unwrap();
+        let sources = CredentialSources {
+            env: &no_env,
+            store: &store,
+            user_file: None,
+        };
+        let config = config_with_endpoint(ProviderName::Anthropic);
+        assert!(build_provider("google", &config, &sources).is_ok());
     }
 
     #[test]

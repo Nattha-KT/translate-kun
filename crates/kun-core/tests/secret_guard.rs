@@ -40,6 +40,74 @@ fn detects_aws_temporary_access_key_id() {
     assert_eq!(kinds_in(&key), vec![SecretKind::AwsAccessKey]);
 }
 
+/// AWS's own documented example secret key: 40 characters.
+fn fake_aws_secret() -> String {
+    format!("{}{}", "wJalrXUtnFEMI/K7MDENG/", "bPxRfiCYEXAMPLEKEY")
+}
+
+#[test]
+fn redact_hides_both_halves_of_an_aws_credentials_block() {
+    let id = format!("{}{}", "AKIA", "IOSFODNN7EXAMPLE");
+    let secret = fake_aws_secret();
+    assert_eq!(secret.len(), 40);
+    let text = format!(
+        "[default]\naws_access_key_id = {id}\naws_secret_access_key = {secret}\nregion = eu-west-1\n"
+    );
+
+    let findings = guard().scan(&text);
+    let kinds: Vec<SecretKind> = findings.iter().map(|f| f.kind).collect();
+    let redacted = redact(&text, &findings);
+
+    assert_eq!(
+        kinds,
+        vec![SecretKind::AwsAccessKey, SecretKind::AwsSecretAccessKey]
+    );
+    assert!(!redacted.contains(&id), "{redacted}");
+    assert!(!redacted.contains(&secret), "{redacted}");
+    assert_eq!(
+        redacted,
+        "[default]\naws_access_key_id = [REDACTED]\naws_secret_access_key = [REDACTED]\nregion = eu-west-1\n"
+    );
+}
+
+#[test]
+fn detects_aws_secret_access_key_in_common_assignment_forms() {
+    let secret = fake_aws_secret();
+    for before in [
+        "AWS_SECRET_ACCESS_KEY=",
+        "export AWS_SECRET_ACCESS_KEY=\"",
+        "aws_secret_access_key: '",
+        "\"SecretAccessKey\": \"",
+        "secretAccessKey=",
+    ] {
+        assert_found_once(before, &secret, "\"\n", SecretKind::AwsSecretAccessKey);
+    }
+    // At the very end of the text, and JSON-escaped.
+    assert_found_once(
+        "aws_secret_access_key=",
+        &secret,
+        "",
+        SecretKind::AwsSecretAccessKey,
+    );
+    assert_found_once(
+        r#"{"cfg": "aws_secret_access_key = "#,
+        &secret,
+        r#"\nregion = x"}"#,
+        SecretKind::AwsSecretAccessKey,
+    );
+}
+
+#[test]
+fn ignores_aws_secret_key_names_without_a_40_character_value() {
+    assert_clean("Put aws_secret_access_key in ~/.aws/credentials.");
+    assert_clean("aws_secret_access_key = <your secret here>");
+    assert_clean("AWS_SECRET_ACCESS_KEY=FAKEshort123");
+    // 41 characters is not an AWS secret key.
+    assert_clean(&format!("AWS_SECRET_ACCESS_KEY={}X", fake_aws_secret()));
+    // Without a key name, a 40-character base64 run is not reported.
+    assert_clean(&format!("value {}", fake_aws_secret()));
+}
+
 #[test]
 fn detects_github_tokens_with_every_prefix() {
     // 36 characters after the prefix, like a real classic token.
@@ -107,6 +175,71 @@ fn detects_slack_tokens() {
             "prefix {prefix}"
         );
     }
+}
+
+#[test]
+fn detects_stripe_live_secret_and_restricted_keys() {
+    for prefix in ["sk_live_", "rk_live_"] {
+        let key = format!("{prefix}{}", "FAKEEXAMPLE0123456789abcd");
+        assert_found_once("STRIPE_KEY=", &key, "\n", SecretKind::StripeKey);
+    }
+}
+
+#[test]
+fn ignores_stripe_test_keys_and_bare_prefixes() {
+    assert_clean(&format!("{}{}", "sk_test_", "FAKEEXAMPLE0123456789abcd"));
+    assert_clean("Live keys start with sk_live_ or rk_live_.");
+    assert_clean(&format!("{}{}", "sk_live_", "FAKE123"));
+    assert_clean(&format!("{}{}", "task_live_", "FAKEEXAMPLE0123456789abcd"));
+}
+
+#[test]
+fn detects_gitlab_personal_access_token() {
+    let token = format!("{}{}", "glpat-", "FAKE-EXAMPLE_0123456");
+    assert_found_once("token: ", &token, "\n", SecretKind::GitLabToken);
+}
+
+#[test]
+fn ignores_gitlab_prefix_without_a_token_body() {
+    assert_clean("GitLab tokens begin with glpat- and then 20 characters.");
+    assert_clean(&format!("{}{}", "glpat-", "FAKE0123"));
+}
+
+#[test]
+fn detects_npm_access_token() {
+    let token = format!("{}{}", "npm_", "FAKEEXAMPLE0123456789abcdefghijklmno");
+    assert_eq!(token.len(), 4 + 36);
+    assert_found_once(
+        "//registry.npmjs.org/:_authToken=",
+        &token,
+        "\n",
+        SecretKind::NpmToken,
+    );
+}
+
+#[test]
+fn ignores_npm_environment_variables_and_short_tokens() {
+    assert_clean("echo $npm_config_registry $npm_package_version $npm_lifecycle_event");
+    assert_clean(&format!("{}{}", "npm_", "FAKE0123456789"));
+    // 37 characters is not an npm token.
+    assert_clean(&format!(
+        "{}{}",
+        "npm_", "FAKEEXAMPLE0123456789abcdefghijklmnoX"
+    ));
+}
+
+#[test]
+fn detects_hugging_face_token() {
+    let token = format!("{}{}", "hf_", "FAKEEXAMPLE0123456789abcdefghijklm");
+    assert_eq!(token.len(), 3 + 34);
+    assert_found_once("HF_TOKEN=", &token, "\n", SecretKind::HuggingFaceToken);
+}
+
+#[test]
+fn ignores_hugging_face_function_names_and_short_values() {
+    assert_clean("from huggingface_hub import hf_hub_download, hf_hub_url");
+    assert_clean("export HF_HOME=~/.cache/hf_cache_directory_for_models_and_data");
+    assert_clean(&format!("{}{}", "hf_", "FAKE0123456789"));
 }
 
 /// A fake PEM block: `-----BEGIN <label>PRIVATE KEY-----` … `-----END …`.
@@ -375,6 +508,22 @@ fn one_sample_per_kind() -> Vec<(SecretKind, String)> {
         ),
         (SecretKind::PrivateKeyBlock, fake_pem("RSA ")),
         (
+            SecretKind::StripeKey,
+            format!("{}{}", "sk_live_", "FAKEEXAMPLE0123456789abcd"),
+        ),
+        (
+            SecretKind::GitLabToken,
+            format!("{}{}", "glpat-", "FAKE-EXAMPLE_0123456"),
+        ),
+        (
+            SecretKind::NpmToken,
+            format!("{}{}", "npm_", "FAKEEXAMPLE0123456789abcdefghijklmno"),
+        ),
+        (
+            SecretKind::HuggingFaceToken,
+            format!("{}{}", "hf_", "FAKEEXAMPLE0123456789abcdefghijklm"),
+        ),
+        (
             SecretKind::Jwt,
             format!(
                 "{}.{}.{}",
@@ -395,6 +544,59 @@ fn detects_every_kind_glued_to_thai_text() {
         assert_eq!(findings.len(), 1, "{kind:?} not found once in Thai text");
         assert_eq!(findings[0].kind, kind);
         assert_eq!(&text[findings[0].range.clone()], secret, "{kind:?}");
+    }
+}
+
+/// Checks that `secret` is found exactly once, with the reported range
+/// covering only the secret, in `before + secret + after`.
+fn assert_found_once(before: &str, secret: &str, after: &str, kind: SecretKind) {
+    let text = format!("{before}{secret}{after}");
+
+    let findings = guard().scan(&text);
+
+    assert_eq!(findings.len(), 1, "{kind:?} not found once in {text:?}");
+    assert_eq!(findings[0].kind, kind);
+    assert_eq!(&text[findings[0].range.clone()], secret, "{kind:?}");
+}
+
+#[test]
+fn detects_a_key_after_a_json_escaped_newline() {
+    let aws = format!("{}{}", "AKIA", "IOSFODNN7EXAMPLE");
+    assert_found_once(r"a\n", &aws, "", SecretKind::AwsAccessKey);
+}
+
+#[test]
+fn detects_a_key_after_a_json_escaped_tab() {
+    let google = format!("{}{}", "AIza", "SyFAKE-EXAMPLE_0123456789abcdefghij");
+    assert_found_once(r"x\t", &google, "", SecretKind::GoogleApiKey);
+}
+
+#[test]
+fn detects_a_key_after_an_underscore() {
+    let aws = format!("{}{}", "AKIA", "IOSFODNN7EXAMPLE");
+    assert_found_once("KEY_", &aws, "", SecretKind::AwsAccessKey);
+}
+
+#[test]
+fn detects_a_github_token_inside_a_json_string_after_an_escaped_newline() {
+    let token = format!("{}{}", "ghp_", "FAKEexample0123456789abcdefghijklmno");
+    assert_found_once(
+        r#"{"notes": "line one\n"#,
+        &token,
+        r#"\nline three"}"#,
+        SecretKind::GitHubToken,
+    );
+}
+
+#[test]
+fn detects_every_prefixed_kind_after_escapes_and_underscores() {
+    for (kind, secret) in one_sample_per_kind() {
+        if kind == SecretKind::PrivateKeyBlock || kind == SecretKind::OpenAiApiKey {
+            continue;
+        }
+        for before in [r"a\n", r"x\t", "KEY_", "\"", "("] {
+            assert_found_once(before, &secret, "", kind);
+        }
     }
 }
 
@@ -660,6 +862,21 @@ fn ignores_long_kebab_case_names_starting_with_sk() {
     assert!(segment.len() >= 40);
     assert_clean(&format!("deploy sk-{segment}-more-words"));
     assert_clean(&format!("deploy sk-{segment}_more_words"));
+}
+
+#[test]
+fn ignores_prefixes_glued_to_the_end_of_a_longer_word() {
+    // The prefix must follow a separator, not a letter or digit.
+    assert_clean("deploy task-ant-migration-runner-for-production-cluster");
+    assert_clean(&format!("{}{}", "XAKIA", "IOSFODNN7EXAMPLE"));
+    assert_clean(&format!(
+        "{}{}",
+        "BAIza", "SyFAKE-EXAMPLE_0123456789abcdefghij"
+    ));
+    assert_clean(&format!(
+        "{}{}",
+        "highp_", "FAKEexample0123456789abcdefghijklmno"
+    ));
 }
 
 #[test]

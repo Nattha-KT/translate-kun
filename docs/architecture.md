@@ -60,10 +60,12 @@ Other constraints (see [AGENTS.md](../AGENTS.md)): no async (the HTTP client is 
 3. **Input.** `read_input` takes the text from the arguments or, if there are none, from stdin. The size limit (`max_chars`) is checked in characters. Empty text is a usage error.
 4. **Target Language.** `resolve_target` picks one Target Language, a Language Pair, or nothing (a usage error). This happens before the Secret Guard and before any Provider is built, so a missing Target Language never costs a prompt or a network call.
 5. **Secret Guard.** `run_secret_guard` scans the text and gets a decision: send, redact, ask the user, or block.
-6. **Provider.** `build_provider` looks up the credential (env → keychain → User Config file) and builds the Provider. `translate` calls it. For a Language Pair, the direction is chosen from the detected Source Language.
-7. **Output.** The translation goes to stdout; diagnostics go to stderr. With `--json`, one JSON object goes to stdout and warnings go inside it.
+6. **Provider.** `build_provider` refuses a configured `providers.<name>.endpoint` for the chosen Provider (exit 3, since custom endpoints are not built yet), looks up the credential (env → keychain → User Config file) and builds the Provider. `translate` calls it. For a Language Pair, the direction is chosen from the detected Source Language.
+7. **Output.** The translation goes to stdout; diagnostics go to stderr. On a terminal, control characters other than `\n` and `\t` are stripped from the translation first. With `--json`, one JSON object goes to stdout and warnings go inside it.
 
 Any step can return a `CliError`. `main` prints its fixed message to stderr and exits with `CliError::exit_code()`.
+
+> **The Secret Guard is the Adapter's job.** `kun-core` does not enforce it: `translate` and `Provider::translate` send whatever text they are given. Every Adapter (the CLI today, any other front end later) must run `SecretGuard::scan` and act on `decide` before it makes any Provider call.
 
 ## The `Provider` trait
 
@@ -87,7 +89,7 @@ pub trait Provider {
 
 Say you are adding a Provider called `deepl`.
 
-1. **Implement it in `kun-core`.** Create `crates/kun-core/src/provider/deepl.rs` and add `pub mod deepl;` in `provider.rs`. Write a struct that holds the credential (a `Secret`) and the timeout, and implement `Provider` for it. Use `ureq` with the timeout, and honour `HTTPS_PROXY` and `NO_PROXY` like the existing Providers.
+1. **Implement it in `kun-core`.** Create `crates/kun-core/src/provider/deepl.rs` and add `pub mod deepl;` in `provider.rs`. Write a struct that holds the credential (a `Secret`) and the timeout, and implement `Provider` for it. Use `ureq` with the timeout, and honour the proxy variables (`ureq::Proxy::try_from_env()`) like the existing Providers.
 2. **Map every failure to a `ProviderError`.** Turn transport errors and HTTP statuses into fixed categories. Never put a URL, header or response body in an error. Look at `google.rs` for the pattern.
 3. **Keep secrets out of output.** The credential must not appear in a URL query, a log line, or `Debug` output. Write a manual `Debug` that prints `<redacted>` for anything that may hold user text or a key.
 4. **Register the name.** In `config/schema.rs`, add a `ProviderName` variant and include it in `ProviderName::ALL`. In `credentials.rs`, add its environment variable to `env_var_name`, and make the credential lookup cover it.

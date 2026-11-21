@@ -35,6 +35,8 @@ pub const REDACTED: &str = "[REDACTED]";
 pub enum SecretKind {
     /// An AWS access key ID.
     AwsAccessKey,
+    /// An AWS secret access key, in assignment form (`aws_secret_access_key = …`).
+    AwsSecretAccessKey,
     /// A GitHub token.
     GitHubToken,
     /// An Anthropic API key.
@@ -45,6 +47,14 @@ pub enum SecretKind {
     GoogleApiKey,
     /// A Slack token.
     SlackToken,
+    /// A Stripe live secret or restricted key.
+    StripeKey,
+    /// A GitLab personal access token.
+    GitLabToken,
+    /// An npm access token.
+    NpmToken,
+    /// A Hugging Face access token.
+    HuggingFaceToken,
     /// A PEM private key block.
     PrivateKeyBlock,
     /// A JSON Web Token.
@@ -57,11 +67,16 @@ impl fmt::Display for SecretKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
             SecretKind::AwsAccessKey => "AWS access key",
+            SecretKind::AwsSecretAccessKey => "AWS secret access key",
             SecretKind::GitHubToken => "GitHub token",
             SecretKind::AnthropicApiKey => "Anthropic API key",
             SecretKind::OpenAiApiKey => "OpenAI API key",
             SecretKind::GoogleApiKey => "Google API key",
             SecretKind::SlackToken => "Slack token",
+            SecretKind::StripeKey => "Stripe live key",
+            SecretKind::GitLabToken => "GitLab token",
+            SecretKind::NpmToken => "npm token",
+            SecretKind::HuggingFaceToken => "Hugging Face token",
             SecretKind::PrivateKeyBlock => "private key block",
             SecretKind::Jwt => "JWT",
             SecretKind::Custom => "secret (custom pattern)",
@@ -117,20 +132,37 @@ pub enum SecretGuardError {
 /// `(?-u:\b)` is an ASCII-only word boundary. A plain `\b` is Unicode-aware
 /// and treats Thai letters as word characters, so a key written straight
 /// after a Thai word (Thai has no spaces) would be missed.
+///
+/// Patterns with a distinctive prefix use `after_separator` instead of a
+/// leading `\b`: `\b` treats the `n` of a JSON-escaped `\n` and the `_` of
+/// `KEY_` as word characters, so it missed keys right after them.
 const BUILT_IN: &[BuiltIn] = &[
     BuiltIn {
         kind: SecretKind::AwsAccessKey,
-        regex: r"(?-u:\b)(?:AKIA|ASIA)[A-Z0-9]{16}(?-u:\b)",
+        regex: r"(?:AKIA|ASIA)[A-Z0-9]{16}(?-u:\b)",
+        after_separator: true,
+        not_followed_by: &[],
+    },
+    // The secret half of an AWS key pair has no prefix of its own, so it is
+    // only found in assignment form: `aws_secret_access_key = …`,
+    // `AWS_SECRET_ACCESS_KEY=…` or `"SecretAccessKey": "…"`. Only the value
+    // (group 1) is reported, so redacting keeps the key name.
+    BuiltIn {
+        kind: SecretKind::AwsSecretAccessKey,
+        regex: r#"(?i:(?:aws_?)?secret_?access_?key)["']?[ \t]*[=:][ \t]*["']?([A-Za-z0-9/+]{40})(?:[^A-Za-z0-9/+=]|$)"#,
+        after_separator: false,
         not_followed_by: &[],
     },
     BuiltIn {
         kind: SecretKind::GitHubToken,
-        regex: r"(?-u:\b)(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})(?-u:\b)",
+        regex: r"(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})(?-u:\b)",
+        after_separator: true,
         not_followed_by: &[],
     },
     BuiltIn {
         kind: SecretKind::AnthropicApiKey,
-        regex: r"(?-u:\b)sk-ant-[A-Za-z0-9_\-]{20,}",
+        regex: r"sk-ant-[A-Za-z0-9_\-]{20,}",
+        after_separator: true,
         not_followed_by: &[],
     },
     // OpenAI legacy keys: `sk-` + 40 or more letters/digits only. If the run
@@ -141,22 +173,55 @@ const BUILT_IN: &[BuiltIn] = &[
     BuiltIn {
         kind: SecretKind::OpenAiApiKey,
         regex: r"(?-u:\b)sk-[A-Za-z0-9]{40,}",
+        after_separator: false,
         not_followed_by: &['-', '_'],
     },
     // OpenAI prefixed keys may contain `-` and `_`.
     BuiltIn {
         kind: SecretKind::OpenAiApiKey,
         regex: r"(?-u:\b)sk-(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{32,}",
+        after_separator: false,
         not_followed_by: &[],
     },
     BuiltIn {
         kind: SecretKind::GoogleApiKey,
-        regex: r"(?-u:\b)AIza[A-Za-z0-9_\-]{35}",
+        regex: r"AIza[A-Za-z0-9_\-]{35}",
+        after_separator: true,
         not_followed_by: &[],
     },
     BuiltIn {
         kind: SecretKind::SlackToken,
-        regex: r"(?-u:\b)xox[abprs]-[A-Za-z0-9\-]{10,}",
+        regex: r"xox[abprs]-[A-Za-z0-9\-]{10,}",
+        after_separator: true,
+        not_followed_by: &[],
+    },
+    // Stripe live secret (`sk_live_`) and restricted (`rk_live_`) keys.
+    // Test-mode keys (`sk_test_`) cannot move money, so they are left alone.
+    BuiltIn {
+        kind: SecretKind::StripeKey,
+        regex: r"[sr]k_live_[A-Za-z0-9]{24,}(?-u:\b)",
+        after_separator: true,
+        not_followed_by: &[],
+    },
+    BuiltIn {
+        kind: SecretKind::GitLabToken,
+        regex: r"glpat-[A-Za-z0-9_\-]{20,}",
+        after_separator: true,
+        not_followed_by: &[],
+    },
+    // Exactly 36 letters/digits: `npm_config_…` environment variables have
+    // `_` in them, so they never match.
+    BuiltIn {
+        kind: SecretKind::NpmToken,
+        regex: r"npm_[A-Za-z0-9]{36}(?-u:\b)",
+        after_separator: true,
+        not_followed_by: &[],
+    },
+    // Letters/digits only, so snake_case names like `hf_hub_download` never match.
+    BuiltIn {
+        kind: SecretKind::HuggingFaceToken,
+        regex: r"hf_[A-Za-z0-9]{34,}(?-u:\b)",
+        after_separator: true,
         not_followed_by: &[],
     },
     // PEM private keys are not here: see `private_key_block`.
@@ -165,15 +230,24 @@ const BUILT_IN: &[BuiltIn] = &[
     // The payload may be as short as `e30` (`{}`, empty claims).
     BuiltIn {
         kind: SecretKind::Jwt,
-        regex: r"(?-u:\b)eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{2,}\.[A-Za-z0-9_\-]{5,}",
+        regex: r"eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{2,}\.[A-Za-z0-9_\-]{5,}",
+        after_separator: true,
         not_followed_by: &[],
     },
 ];
 
+/// What must come right before a pattern with `after_separator`: the start
+/// of the text, any character that is not an ASCII letter or digit, or a
+/// JSON escape `\n` / `\t`. It is not part of the reported range.
+const SEPARATOR: &str = r"(?:^|[^A-Za-z0-9]|\\[nt])";
+
 /// One built-in pattern, before it is compiled.
 struct BuiltIn {
     kind: SecretKind,
+    /// If it has a capture group, only group 1 is reported.
     regex: &'static str,
+    /// Must follow [`SEPARATOR`] (see `BUILT_IN`).
+    after_separator: bool,
     /// A match is dropped if the character right after it is one of these.
     /// (The `regex` crate has no look-ahead, so this is checked by hand.)
     not_followed_by: &'static [char],
@@ -182,6 +256,8 @@ struct BuiltIn {
 struct Pattern {
     kind: SecretKind,
     regex: Regex,
+    /// The capture group whose range is reported (0 = the whole match).
+    group: usize,
     not_followed_by: &'static [char],
 }
 
@@ -203,20 +279,30 @@ impl SecretGuard {
     pub fn new(extra: &[String]) -> Result<Self, SecretGuardError> {
         let mut patterns = Vec::new();
         for built_in in BUILT_IN {
+            let source = if built_in.after_separator {
+                format!("{SEPARATOR}({})", built_in.regex)
+            } else {
+                built_in.regex.to_string()
+            };
             // A broken built-in pattern is a bug in `kun`, caught by the tests.
-            let regex = Regex::new(built_in.regex).expect("built-in pattern is valid");
+            let regex = Regex::new(&source).expect("built-in pattern is valid");
+            // Built-in patterns have at most one capture group.
+            let group = if regex.captures_len() > 1 { 1 } else { 0 };
             patterns.push(Pattern {
                 kind: built_in.kind,
                 regex,
+                group,
                 not_followed_by: built_in.not_followed_by,
             });
         }
         for (index, source) in extra.iter().enumerate() {
             let regex =
                 Regex::new(source).map_err(|_| SecretGuardError::InvalidPattern { index })?;
+            // A user's own groups do not narrow the finding: the whole match counts.
             patterns.push(Pattern {
                 kind: SecretKind::Custom,
                 regex,
+                group: 0,
                 not_followed_by: &[],
             });
         }
@@ -232,7 +318,10 @@ impl SecretGuard {
     pub fn scan(&self, text: &str) -> Vec<Finding> {
         let mut findings = Vec::new();
         for pattern in &self.patterns {
-            for m in pattern.regex.find_iter(text) {
+            for captures in pattern.regex.captures_iter(text) {
+                let Some(m) = captures.get(pattern.group) else {
+                    continue;
+                };
                 // An empty match hides nothing, so it is not a finding.
                 if m.is_empty() {
                     continue;

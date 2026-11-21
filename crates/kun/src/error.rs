@@ -93,6 +93,9 @@ pub enum CliError {
     NoAnthropicKey,
     /// There is no OS keychain on this machine (`kun auth login`).
     KeychainUnavailable { env_var: &'static str },
+    /// The config sets `providers.<provider>.endpoint`, which is not built
+    /// yet. `provider` is a built-in Provider name, never config text.
+    EndpointNotSupported { provider: &'static str },
     /// The OS keychain exists but a read, write or delete failed.
     KeychainFailed,
     /// Something unexpected, such as a failed write to stdout.
@@ -124,7 +127,8 @@ impl CliError {
             CliError::Usage(_) | CliError::NoText => 2,
             CliError::Config { .. }
             | CliError::ExtraPattern(_)
-            | CliError::KeychainUnavailable { .. } => 3,
+            | CliError::KeychainUnavailable { .. }
+            | CliError::EndpointNotSupported { .. } => 3,
             CliError::Provider(ProviderError::MissingCredentials)
             | CliError::NoGoogleKey
             | CliError::NoAnthropicKey => 4,
@@ -230,6 +234,10 @@ impl fmt::Display for CliError {
                  Set {env_var} in the environment instead, or add it to the \
                  [credentials] table of the User Config (and run `chmod 600` on that file)"
             ),
+            CliError::EndpointNotSupported { provider } => write!(
+                f,
+                "providers.{provider}.endpoint is not supported yet; remove it to use the public API."
+            ),
             CliError::KeychainFailed => {
                 f.write_str("the OS keychain could not read or write the credential")
             }
@@ -271,6 +279,7 @@ mod tests {
             (CliError::NoGoogleKey, 4),
             (CliError::NoAnthropicKey, 4),
             (CliError::KeychainUnavailable { env_var: "X" }, 3),
+            (CliError::EndpointNotSupported { provider: "google" }, 3),
             (CliError::KeychainFailed, 1),
             (CliError::Unexpected("x"), 1),
         ];
