@@ -121,6 +121,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 | 5 | Network or Provider error |
 | 6 | Blocked by the Secret Guard (or you answered "no" at its prompt) |
 | 7 | Input longer than the size limit (10,000 characters by default) |
+| 8 | Rate limited or quota exceeded: waiting, or checking your Provider account, may help (a script can retry on 8) |
 
 ## Contributing
 

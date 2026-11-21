@@ -132,6 +132,9 @@ impl CliError {
             CliError::Provider(ProviderError::MissingCredentials)
             | CliError::NoGoogleKey
             | CliError::NoAnthropicKey => 4,
+            CliError::Provider(
+                ProviderError::RateLimited { .. } | ProviderError::QuotaExceeded,
+            ) => 8,
             CliError::Provider(_) => 5,
             CliError::SecretBlocked(_) | CliError::SecretDeclined => 6,
             CliError::TooLarge { .. } => 7,
@@ -201,7 +204,9 @@ impl fmt::Display for CliError {
                     "no credentials found for this provider (run `kun auth login <provider>`)",
                 ),
                 ProviderError::Refused => f.write_str("The provider declined to translate this text."),
-                other => write!(f, "{other}; you can try another one with `--provider`"),
+                // Another Provider would not help: the text is the problem.
+                ProviderError::OutputTruncated => write!(f, "{error}"),
+                other =>write!(f, "{other}; you can try another one with `--provider`"),
             },
             CliError::SecretBlocked(findings) => {
                 // Only kinds and byte positions: never the matched values.
@@ -270,7 +275,20 @@ mod tests {
             ),
             (CliError::Provider(ProviderError::MissingCredentials), 4),
             (CliError::Provider(ProviderError::Authentication), 5),
-            (CliError::Provider(ProviderError::RateLimited), 5),
+            (
+                CliError::Provider(ProviderError::RateLimited {
+                    retry_after_secs: None,
+                }),
+                8,
+            ),
+            (
+                CliError::Provider(ProviderError::RateLimited {
+                    retry_after_secs: Some(30),
+                }),
+                8,
+            ),
+            (CliError::Provider(ProviderError::QuotaExceeded), 8),
+            (CliError::Provider(ProviderError::OutputTruncated), 5),
             (CliError::Provider(ProviderError::InvalidResponse), 5),
             (CliError::SecretBlocked(Vec::new()), 6),
             (CliError::SecretDeclined, 6),
@@ -295,6 +313,29 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "The provider declined to translate this text."
+        );
+    }
+
+    #[test]
+    fn limit_errors_are_exit_8_and_say_how_long_to_wait() {
+        let error = CliError::from(TranslateError::Provider(ProviderError::RateLimited {
+            retry_after_secs: Some(30),
+        }));
+        assert_eq!(error.exit_code(), 8);
+        assert!(error.to_string().contains("retry in 30 seconds"));
+
+        let error = CliError::from(TranslateError::Provider(ProviderError::QuotaExceeded));
+        assert_eq!(error.exit_code(), 8);
+        assert!(error.to_string().contains("check your provider account"));
+    }
+
+    #[test]
+    fn a_truncated_translation_is_exit_5_and_does_not_suggest_another_provider() {
+        let error = CliError::from(TranslateError::Provider(ProviderError::OutputTruncated));
+        assert_eq!(error.exit_code(), 5);
+        assert_eq!(
+            error.to_string(),
+            "the translation was too long for one request; split the text or lower max_chars"
         );
     }
 

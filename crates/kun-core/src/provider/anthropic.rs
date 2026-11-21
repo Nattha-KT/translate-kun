@@ -19,7 +19,9 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{NetworkReason, Provider, ProviderError, Translation, TranslationRequest};
+use super::{
+    NetworkReason, Provider, ProviderError, Translation, TranslationRequest, parse_retry_after,
+};
 use crate::credentials::Secret;
 use crate::language::LanguageCode;
 
@@ -34,9 +36,10 @@ const KEY_HEADER: &str = "x-api-key";
 const VERSION_HEADER: &str = "anthropic-version";
 const API_VERSION: &str = "2023-06-01";
 
-/// Upper bound for the reply. A translation of the 10,000-character input
-/// limit fits well inside it.
-const MAX_TOKENS: u32 = 4096;
+/// Upper bound for the reply. Thai and other scripts use many tokens per
+/// character, so a translation of the 10,000-character input limit needs far
+/// more than 4096. 16000 is safe for a non-streaming request.
+const MAX_TOKENS: u32 = 16000;
 
 /// Largest response body we read.
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
@@ -108,26 +111,44 @@ impl Provider for AnthropicProvider {
             .map_err(transport_error)?;
 
         let status = response.status().as_u16();
+        let retry_after = parse_retry_after(
+            response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok()),
+        );
         let mut reader = response
             .body_mut()
             .with_config()
             .limit(MAX_BODY_BYTES)
             .reader();
-        read_response(status, &mut reader)
+        read_response(status, retry_after, &mut reader)
     }
 }
 
-/// Turn a response into a result. The body is read only for a 2xx; any other
-/// status is decided by the code alone and the body is never kept.
-fn read_response(status: u16, body: &mut dyn Read) -> Result<Translation, ProviderError> {
-    if !(200..300).contains(&status) {
-        return Err(status_error(status));
+/// Turn a response into a result. The body is read for a 2xx (parsed) and for
+/// a 400 or 402 (classified: a credit or billing problem comes with these
+/// statuses). Every other status is decided by the code alone. An error body
+/// is never kept. `retry_after` is the parsed `retry-after` header.
+fn read_response(
+    status: u16,
+    retry_after: Option<u64>,
+    body: &mut dyn Read,
+) -> Result<Translation, ProviderError> {
+    let is_success = (200..300).contains(&status);
+    if !is_success && !matches!(status, 400 | 402) {
+        return Err(status_error(status, retry_after));
     }
     let mut bytes = Vec::new();
     body.read_to_end(&mut bytes)
         .map_err(|error| transport_error(ureq::Error::from(error)))?;
-    let text = String::from_utf8(bytes).map_err(|_| ProviderError::InvalidResponse)?;
-    parse_response(&text)
+    if is_success {
+        let text = String::from_utf8(bytes).map_err(|_| ProviderError::InvalidResponse)?;
+        parse_response(&text)
+    } else {
+        let text = String::from_utf8_lossy(&bytes);
+        Err(error_for_status(status, retry_after, &text))
+    }
 }
 
 /// Makes `text` safe to put between our `<text>` / `<style>` tags: `&` and `<`
@@ -266,6 +287,11 @@ fn parse_response(body: &str) -> Result<Translation, ProviderError> {
     if parsed.stop_reason.as_deref() == Some("refusal") {
         return Err(ProviderError::Refused);
     }
+    // A cut-off reply is never trusted, even if the JSON happens to parse:
+    // the translation could be missing its end.
+    if parsed.stop_reason.as_deref() == Some("max_tokens") {
+        return Err(ProviderError::OutputTruncated);
+    }
     let text_block = parsed
         .content
         .into_iter()
@@ -285,20 +311,71 @@ fn parse_response(body: &str) -> Result<Translation, ProviderError> {
 }
 
 /// The error for a non-2xx status, without looking at the body.
-fn status_error(status: u16) -> ProviderError {
+fn status_error(status: u16, retry_after: Option<u64>) -> ProviderError {
     match status {
         401 | 403 => ProviderError::Authentication,
-        // 529 is Anthropic's "overloaded".
-        429 | 529 => ProviderError::RateLimited,
+        // 429 is `rate_limit_error`; 529 is `overloaded_error`. Both mean
+        // "wait and try again".
+        429 | 529 => ProviderError::RateLimited {
+            retry_after_secs: retry_after,
+        },
         _ => ProviderError::Network(NetworkReason::Status(status)),
     }
+}
+
+// The parts of an Anthropic error body we look at. No `Debug`: the message
+// may echo request data.
+#[derive(Deserialize)]
+struct ErrorBody {
+    error: ErrorInfo,
+}
+
+#[derive(Deserialize)]
+struct ErrorInfo {
+    #[serde(rename = "type", default)]
+    kind: String,
+    #[serde(default)]
+    message: String,
+}
+
+/// The `error.type` Anthropic uses for a billing problem.
+const BILLING_ERROR: &str = "billing_error";
+
+/// Map a 400 or 402 response to a [`ProviderError`].
+///
+/// A `billing_error` type, or a message that mentions the "credit balance",
+/// is `QuotaExceeded`. Anything else (including a body that is not Anthropic
+/// error JSON) keeps the plain status. The body itself is never put in the
+/// error.
+fn error_for_status(status: u16, retry_after: Option<u64>, body: &str) -> ProviderError {
+    if let Ok(parsed) = serde_json::from_str::<ErrorBody>(body) {
+        let is_billing = parsed.error.kind == BILLING_ERROR
+            || parsed
+                .error
+                .message
+                .to_lowercase()
+                .contains("credit balance");
+        if is_billing {
+            return ProviderError::QuotaExceeded;
+        }
+        // The type can also name a rate limit, whatever the status was.
+        if matches!(
+            parsed.error.kind.as_str(),
+            "rate_limit_error" | "overloaded_error"
+        ) {
+            return ProviderError::RateLimited {
+                retry_after_secs: retry_after,
+            };
+        }
+    }
+    status_error(status, retry_after)
 }
 
 /// Map a `ureq` error to a fixed [`ProviderError`]. The `ureq` error is
 /// dropped: its text can contain URLs or proxy credentials.
 fn transport_error(error: ureq::Error) -> ProviderError {
     let reason = match error {
-        ureq::Error::StatusCode(status) => return status_error(status),
+        ureq::Error::StatusCode(status) => return status_error(status, None),
         ureq::Error::Timeout(_) => NetworkReason::Timeout,
         ureq::Error::Io(io) => match io.kind() {
             ErrorKind::TimedOut => NetworkReason::Timeout,
@@ -353,7 +430,7 @@ mod tests {
     fn request_body_has_the_documented_shape() {
         let body = request_body("claude-haiku-5-5", None, &request("Hello", None, "th"));
         assert_eq!(body["model"], "claude-haiku-5-5");
-        assert_eq!(body["max_tokens"], 4096);
+        assert_eq!(body["max_tokens"], 16000);
         assert_eq!(body["thinking"], json!({ "type": "disabled" }));
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
         assert_eq!(
@@ -530,7 +607,6 @@ mod tests {
     #[test]
     fn malformed_responses_are_invalid_response() {
         let not_json_reply = response("Just text, no JSON", "end_turn");
-        let truncated = response(r#"{"translation":"Hel"#, "max_tokens");
         let wrong_type = response(r#"{"translation":42}"#, "end_turn");
         let no_text_block = json!({ "content": [{ "type": "thinking" }] }).to_string();
         for body in [
@@ -539,7 +615,6 @@ mod tests {
             "{}",
             r#"{"content":[]}"#,
             &not_json_reply,
-            &truncated,
             &wrong_type,
             &no_text_block,
         ] {
@@ -558,14 +633,134 @@ mod tests {
         for (status, expected) in [
             (401, ProviderError::Authentication),
             (403, ProviderError::Authentication),
-            (429, ProviderError::RateLimited),
-            (529, ProviderError::RateLimited),
+            (429, rate_limited(None)),
+            (529, rate_limited(None)),
             (400, ProviderError::Network(NetworkReason::Status(400))),
             (404, ProviderError::Network(NetworkReason::Status(404))),
             (500, ProviderError::Network(NetworkReason::Status(500))),
             (302, ProviderError::Network(NetworkReason::Status(302))),
         ] {
-            assert_eq!(status_error(status), expected, "{status}");
+            assert_eq!(status_error(status, None), expected, "{status}");
+        }
+    }
+
+    fn rate_limited(retry_after_secs: Option<u64>) -> ProviderError {
+        ProviderError::RateLimited { retry_after_secs }
+    }
+
+    // --- limits, quotas and truncation -------------------------------------------
+
+    /// A canned Anthropic error body.
+    fn error_body(kind: &str, message: &str) -> String {
+        json!({
+            "type": "error",
+            "error": { "type": kind, "message": message }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn a_credit_balance_400_is_quota_exceeded() {
+        let body = error_body(
+            "invalid_request_error",
+            "Your credit balance is too low to access the Anthropic API. \
+             Please go to Plans & Billing to upgrade or purchase credits.",
+        );
+        assert_eq!(
+            read_response(400, None, &mut body.as_bytes()).unwrap_err(),
+            ProviderError::QuotaExceeded
+        );
+    }
+
+    #[test]
+    fn a_billing_error_is_quota_exceeded_on_400_and_402() {
+        let body = error_body("billing_error", "There is a problem with your payment.");
+        for status in [400, 402] {
+            assert_eq!(
+                read_response(status, None, &mut body.as_bytes()).unwrap_err(),
+                ProviderError::QuotaExceeded,
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_400_and_402_bodies_keep_the_status() {
+        for status in [400, 402] {
+            for body in [
+                error_body("invalid_request_error", "max_tokens is too large"),
+                "not json".to_string(),
+                String::new(),
+            ] {
+                assert_eq!(
+                    read_response(status, None, &mut body.as_bytes()).unwrap_err(),
+                    ProviderError::Network(NetworkReason::Status(status)),
+                    "{status} {body}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rate_limit_and_overloaded_errors_are_rate_limited_with_retry_after() {
+        // 429 and 529 are decided by the status alone: the body is not read.
+        let error = read_response(429, Some(30), &mut UnreadBody).unwrap_err();
+        assert_eq!(error, rate_limited(Some(30)));
+        assert!(error.to_string().contains("30 seconds"), "{error}");
+        assert_eq!(
+            read_response(529, None, &mut UnreadBody).unwrap_err(),
+            rate_limited(None)
+        );
+        // The error type also counts, even on an unexpected status.
+        for kind in ["rate_limit_error", "overloaded_error"] {
+            let body = error_body(kind, "slow down");
+            assert_eq!(
+                error_for_status(400, Some(5), &body),
+                rate_limited(Some(5)),
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_tokens_is_output_truncated_even_if_the_json_parses() {
+        // A cut-off body that does not parse.
+        let cut_off = response(r#"{"translation":"Hel"#, "max_tokens");
+        assert_eq!(
+            parse_response(&cut_off).unwrap_err(),
+            ProviderError::OutputTruncated
+        );
+        // A complete-looking reply with stop_reason max_tokens is still truncated.
+        let parses = response(
+            r#"{"translation":"Hello","source_language":"en"}"#,
+            "max_tokens",
+        );
+        assert_eq!(
+            parse_response(&parses).unwrap_err(),
+            ProviderError::OutputTruncated
+        );
+        assert_eq!(
+            read_response(200, None, &mut parses.as_bytes()).unwrap_err(),
+            ProviderError::OutputTruncated
+        );
+    }
+
+    #[test]
+    fn limit_errors_never_contain_the_response_body() {
+        let body = error_body(
+            "billing_error",
+            &format!("credit balance too low, key={FAKE_KEY}, FAKE-SECRET-TEXT"),
+        );
+        let errors = [
+            read_response(400, Some(5), &mut body.as_bytes()).unwrap_err(),
+            error_for_status(429, Some(5), &body),
+            ProviderError::OutputTruncated,
+        ];
+        for error in errors {
+            let shown = format!("{error} {error:?} {error:#?}");
+            assert!(!shown.contains(FAKE_KEY), "{shown}");
+            assert!(!shown.contains("FAKE-SECRET-TEXT"), "{shown}");
+            assert!(!shown.contains("credit balance too low"), "{shown}");
         }
     }
 
@@ -605,7 +800,7 @@ mod tests {
         }
         assert_eq!(
             transport_error(ureq::Error::StatusCode(529)),
-            ProviderError::RateLimited
+            rate_limited(None)
         );
         assert_eq!(
             transport_error(ureq::Error::BodyExceedsLimit(10)),
@@ -638,7 +833,7 @@ mod tests {
             r#"{"translation":"Bonjour","source_language":"en"}"#,
             "end_turn",
         );
-        let translation = read_response(200, &mut body.as_bytes()).unwrap();
+        let translation = read_response(200, None, &mut body.as_bytes()).unwrap();
         assert_eq!(translation.text, "Bonjour");
     }
 
@@ -646,12 +841,12 @@ mod tests {
     fn error_statuses_do_not_read_the_body() {
         for (status, expected) in [
             (401, ProviderError::Authentication),
-            (429, ProviderError::RateLimited),
-            (529, ProviderError::RateLimited),
+            (429, rate_limited(None)),
+            (529, rate_limited(None)),
             (500, ProviderError::Network(NetworkReason::Status(500))),
         ] {
             assert_eq!(
-                read_response(status, &mut UnreadBody).unwrap_err(),
+                read_response(status, None, &mut UnreadBody).unwrap_err(),
                 expected,
                 "{status}"
             );
@@ -667,7 +862,7 @@ mod tests {
             }
         }
         assert_eq!(
-            read_response(200, &mut Failing).unwrap_err(),
+            read_response(200, None, &mut Failing).unwrap_err(),
             ProviderError::Network(NetworkReason::Timeout)
         );
     }
@@ -676,7 +871,7 @@ mod tests {
     fn a_200_body_that_is_not_utf8_is_invalid_response() {
         let bytes: &[u8] = &[0xff, 0xfe, 0xfd];
         assert_eq!(
-            read_response(200, &mut &bytes[..]).unwrap_err(),
+            read_response(200, None, &mut &bytes[..]).unwrap_err(),
             ProviderError::InvalidResponse
         );
     }

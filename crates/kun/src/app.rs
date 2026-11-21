@@ -220,7 +220,7 @@ fn run_dry_run(
 ) -> Result<(), CliError> {
     let guarded = dry_run_secret_guard(text, &config.secret_guard, interactive)?;
     if guarded.decision == DryDecision::Redact {
-        warnings.add("possible secrets were replaced with [REDACTED] before sending");
+        warnings.add("possible secrets would be replaced with [REDACTED]");
     }
     let store = open_store();
     let env = |name: &str| std::env::var(name).ok();

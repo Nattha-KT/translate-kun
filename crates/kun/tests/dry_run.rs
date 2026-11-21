@@ -95,7 +95,12 @@ fn a_secret_with_redact_shows_the_marker_and_never_the_key() {
         ))
         .stdout(predicate::str::contains("Secret Guard: redact"))
         .stdout(predicate::str::contains(FAKE_KEY).not())
-        .stderr(predicate::str::contains(FAKE_KEY).not());
+        .stderr(predicate::str::contains(FAKE_KEY).not())
+        // A dry run sends nothing, so the warning is in the conditional.
+        .stderr(predicate::str::contains(
+            "would be replaced with [REDACTED]",
+        ))
+        .stderr(predicate::str::contains("before sending").not());
 }
 
 #[test]

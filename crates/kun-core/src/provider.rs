@@ -91,9 +91,19 @@ pub enum ProviderError {
     /// The network call failed.
     #[error("network error: {0}")]
     Network(NetworkReason),
-    /// The Provider is rate limiting requests.
-    #[error("the provider is rate limiting requests")]
-    RateLimited,
+    /// The Provider is rate limiting requests. Waiting and retrying may help.
+    #[error("the provider is rate limiting requests{}", retry_hint(.retry_after_secs))]
+    RateLimited {
+        /// The `Retry-After` header in seconds, when the Provider sent one.
+        retry_after_secs: Option<u64>,
+    },
+    /// A quota, credit or billing limit was reached. Retrying does not help
+    /// until the user checks the Provider account.
+    #[error("the provider quota, credit or billing limit was reached; check your provider account")]
+    QuotaExceeded,
+    /// The Provider stopped because the reply hit its output limit.
+    #[error("the translation was too long for one request; split the text or lower max_chars")]
+    OutputTruncated,
     /// The Provider does not support this language.
     #[error("the provider does not support language `{0}`")]
     UnsupportedLanguage(LanguageCode),
@@ -103,6 +113,25 @@ pub enum ProviderError {
     /// The model declined to translate the text (Anthropic `refusal`).
     #[error("the provider refused to translate this text")]
     Refused,
+}
+
+/// The text added to the rate-limit message when the Provider said how long to
+/// wait, such as ", retry in 30 seconds". Empty when it did not.
+fn retry_hint(retry_after_secs: &Option<u64>) -> String {
+    match retry_after_secs {
+        Some(secs) => format!(", retry in {secs} seconds"),
+        None => String::new(),
+    }
+}
+
+/// Reads a `Retry-After` header value. Only the seconds form (`"30"`) is
+/// understood; the HTTP-date form and anything else give `None`.
+pub(crate) fn parse_retry_after(value: Option<&str>) -> Option<u64> {
+    let value = value?.trim();
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    value.parse().ok()
 }
 
 /// A translation service. Synchronous and object-safe, so the CLI can hold a
@@ -122,8 +151,18 @@ mod tests {
     #[test]
     fn error_messages_are_readable() {
         assert_eq!(
-            ProviderError::RateLimited.to_string(),
+            ProviderError::RateLimited {
+                retry_after_secs: None
+            }
+            .to_string(),
             "the provider is rate limiting requests"
+        );
+        assert_eq!(
+            ProviderError::RateLimited {
+                retry_after_secs: Some(30)
+            }
+            .to_string(),
+            "the provider is rate limiting requests, retry in 30 seconds"
         );
         assert_eq!(
             ProviderError::Network(NetworkReason::Status(503)).to_string(),
@@ -171,9 +210,28 @@ mod tests {
                 "Network(Status(401))",
             ),
             (
-                ProviderError::RateLimited,
+                ProviderError::RateLimited {
+                    retry_after_secs: None,
+                },
                 "the provider is rate limiting requests",
-                "RateLimited",
+                "RateLimited { retry_after_secs: None }",
+            ),
+            (
+                ProviderError::RateLimited {
+                    retry_after_secs: Some(30),
+                },
+                "the provider is rate limiting requests, retry in 30 seconds",
+                "RateLimited { retry_after_secs: Some(30) }",
+            ),
+            (
+                ProviderError::QuotaExceeded,
+                "the provider quota, credit or billing limit was reached; check your provider account",
+                "QuotaExceeded",
+            ),
+            (
+                ProviderError::OutputTruncated,
+                "the translation was too long for one request; split the text or lower max_chars",
+                "OutputTruncated",
             ),
             (
                 ProviderError::UnsupportedLanguage("th".parse().unwrap()),
@@ -195,6 +253,25 @@ mod tests {
             assert_eq!(error.to_string(), display);
             assert_eq!(format!("{error:?}"), debug);
         }
+    }
+
+    #[test]
+    fn retry_after_reads_only_whole_seconds() {
+        assert_eq!(parse_retry_after(Some("30")), Some(30));
+        assert_eq!(parse_retry_after(Some(" 5 ")), Some(5));
+        assert_eq!(parse_retry_after(Some("0")), Some(0));
+        for bad in [
+            "",
+            "abc",
+            "-1",
+            "1.5",
+            "30 seconds",
+            "Wed, 21 Oct 2026 07:28:00 GMT",
+            "99999999999999999999999",
+        ] {
+            assert_eq!(parse_retry_after(Some(bad)), None, "{bad}");
+        }
+        assert_eq!(parse_retry_after(None), None);
     }
 
     #[test]
