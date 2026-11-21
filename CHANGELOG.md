@@ -20,6 +20,7 @@ First public version, planned as 0.1.0.
 - Translation on stdout, diagnostics and warnings on stderr.
 - `--json` output with a versioned schema (`schema_version` 1). See `docs/json-output.md`.
 - Stable exit codes 0 to 7.
+- `--dry-run`: runs the whole pipeline up to the point of sending, prints the host, the model, the credential source, the Secret Guard decision and the exact text that would be sent, and sends nothing. `--dry-run --json` returns one object (`dry_run: true`, `schema_version` 1).
 
 **Providers**
 

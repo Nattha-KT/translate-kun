@@ -1,6 +1,7 @@
 mod app;
 mod args;
 mod auth;
+mod dry_run;
 mod error;
 mod guard;
 mod init;

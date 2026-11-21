@@ -82,6 +82,7 @@ An explicit `:xx` or `-t xx` always wins over the pair.
 | `--max-chars <N>` | Longest accepted input in characters (default 10000). Must be at least 1. |
 | `--allow-secrets` | Send the text even if the Secret Guard finds a possible secret. |
 | `--redact` | Replace possible secrets with `[REDACTED]` and continue. |
+| `--dry-run` | Show exactly what would be sent, and send nothing. See [Dry run](#dry-run). |
 | `-h, --help` | Show help. |
 | `-V, --version` | Show the version. |
 
@@ -171,6 +172,40 @@ Keys are also found right after `_`, or after a JSON-escaped `\n` or `\t`.
 "On a terminal" means both stdin and stderr are terminals. The answer is read from `/dev/tty`, so the prompt also works when you redirect stdout.
 
 The message that blocks you lists only the kind of secret and its byte range. It never shows the value.
+
+## Dry run
+
+`--dry-run` lets you check for yourself what leaves your machine. It runs everything a real run does up to the point of sending (arguments, config, the size limit, the Secret Guard, the Target Language and Protected Terms), prints what it would send, and **sends nothing**. It never builds a network client and never contacts a Provider.
+
+```sh
+$ echo "my key is AKIAFAKEEXAMPLE12345 ok" | kun --dry-run --redact en:th
+Dry run: nothing was sent.
+provider: google
+host: translation.googleapis.com
+source language: en
+target language: th
+second call: no
+credentials: env
+Secret Guard: redact (matches become [REDACTED])
+  - possible AWS access key at bytes 10..30
+----- begin text that would be sent -----
+my key is [REDACTED] ok
+----- end text that would be sent -----
+```
+
+The report shows:
+
+- the Provider and the host it would contact (`translation.googleapis.com` for Google, `api.anthropic.com` for Anthropic);
+- the model (Anthropic only);
+- the Source Language (`detect` when the Provider detects it) and the Target Language, or the Language Pair;
+- whether a second call may happen (a Language Pair with a detected Source Language can send the text twice);
+- where the credential would come from (`env`, `keychain`, `config file` or `none`), the way `kun auth status` does. A missing credential is not an error in a dry run, and the key is never shown;
+- the Secret Guard decision (`send`, `redact` or `ask`) and each finding as a kind and a byte range, never the value;
+- the **exact text that would be sent**, after redaction and Protected Terms placeholders, between the begin and end markers. If a real run would make no request (the Source Language is already the Target Language), it says so instead.
+
+The Secret Guard never prompts in a dry run. If a real run would block the text (a secret on a pipe, without `--redact`), the dry run fails the same way, with exit code 6. On a terminal, where a real run would ask, the report says `ask`, says that a real run would ask first, and shows the text as if you answered yes.
+
+The exit code is 0 when a real run would have gone on to send. Other errors (usage, config, size limit) are reported as in a real run. With `--json`, the report is one JSON object: see [json-output.md](json-output.md#dry-run).
 
 ## `kun init`
 

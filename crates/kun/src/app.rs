@@ -13,8 +13,9 @@ use kun_core::translate::{
 
 use crate::args::{AuthAction, Cli, Command, LanguageSpec, split_positionals};
 use crate::auth::{self, open_store};
+use crate::dry_run::build_report;
 use crate::error::CliError;
-use crate::guard::{ask_on_terminal, run_secret_guard};
+use crate::guard::{DryDecision, ask_on_terminal, dry_run_secret_guard, run_secret_guard};
 use crate::init::init_in;
 use crate::input::read_input;
 use crate::json_output::{JsonOutput, SCHEMA_VERSION};
@@ -123,6 +124,23 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
     // 5. Secret Guard. Interactive means a person can answer the prompt:
     //    piped stdin is never interactive.
     let interactive = io::stdin().is_terminal() && io::stderr().is_terminal();
+    if cli.dry_run {
+        let provider_name = cli
+            .provider
+            .as_deref()
+            .unwrap_or_else(|| provider_label(config.provider));
+        return run_dry_run(
+            &cli,
+            provider_name,
+            &config,
+            user_credentials.as_ref(),
+            source,
+            &plan,
+            input.text,
+            interactive,
+            warnings,
+        );
+    }
     let guarded = run_secret_guard(
         input.text,
         &config.secret_guard,
@@ -184,6 +202,48 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         return write_stdout(&strip_control_chars(&translation.text));
     }
     write_stdout(&translation.text)
+}
+
+/// `--dry-run`: the same steps as a real run up to the point of sending, then
+/// a report instead of a request. It never builds a Provider.
+#[allow(clippy::too_many_arguments)]
+fn run_dry_run(
+    cli: &Cli,
+    provider_name: &str,
+    config: &kun_core::config::EffectiveConfig,
+    user_credentials: Option<&kun_core::config::FileCredentials>,
+    source: Option<LanguageCode>,
+    plan: &TargetPlan,
+    text: String,
+    interactive: bool,
+    mut warnings: Warnings,
+) -> Result<(), CliError> {
+    let guarded = dry_run_secret_guard(text, &config.secret_guard, interactive)?;
+    if guarded.decision == DryDecision::Redact {
+        warnings.add("possible secrets were replaced with [REDACTED] before sending");
+    }
+    let store = open_store();
+    let env = |name: &str| std::env::var(name).ok();
+    let sources = CredentialSources {
+        env: &env,
+        store: &*store,
+        user_file: user_credentials,
+    };
+    // The warnings are kept in the report only with `--json`; otherwise
+    // `Warnings` has already printed them on stderr.
+    let report = build_report(
+        provider_name,
+        config,
+        &sources,
+        source,
+        plan,
+        guarded,
+        warnings.into_list(),
+    )?;
+    if cli.json {
+        return write_stdout(&report.to_json().render());
+    }
+    write_stdout(&report.render_human())
 }
 
 /// Removes the C0 and C1 control characters (and DEL) except `\n` and `\t`,

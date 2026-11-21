@@ -53,6 +53,10 @@ pub struct Cli {
     #[arg(long)]
     pub json: bool,
 
+    /// Show exactly what would be sent (host, text after the Secret Guard), and send nothing
+    #[arg(long)]
+    pub dry_run: bool,
+
     /// Longest accepted input in characters (default 10000)
     #[arg(long, value_name = "N", value_parser = parse_max_chars)]
     pub max_chars: Option<usize>,

@@ -87,10 +87,29 @@ pub fn build_provider(
     }
 }
 
+/// The host a built-in Provider sends requests to. `None` for the fake
+/// Provider, which makes no request at all.
+pub fn provider_host(name: &str) -> Option<&'static str> {
+    match name {
+        "google" => Some("translation.googleapis.com"),
+        "anthropic" => Some("api.anthropic.com"),
+        _ => None,
+    }
+}
+
+/// The Anthropic model a real run would use: the configured one, or the default.
+pub fn anthropic_model(config: &EffectiveConfig) -> String {
+    config
+        .providers
+        .get(&ProviderName::Anthropic)
+        .and_then(|settings| settings.model.clone())
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string())
+}
+
 /// Custom endpoints are not built yet. Ignoring one would send the text to
 /// the public API when the user expected it to stay elsewhere (for example a
 /// local server), so a configured endpoint is an error instead.
-fn reject_endpoint(name: ProviderName, config: &EffectiveConfig) -> Result<(), CliError> {
+pub fn reject_endpoint(name: ProviderName, config: &EffectiveConfig) -> Result<(), CliError> {
     if config.provider_settings(name).endpoint.is_some() {
         return Err(CliError::EndpointNotSupported {
             provider: provider_label(name),
@@ -102,11 +121,7 @@ fn reject_endpoint(name: ProviderName, config: &EffectiveConfig) -> Result<(), C
 /// The Anthropic Provider with the model, timeout and `style` of the config.
 /// (Google has no use for `style`, so it is not passed there.)
 fn anthropic_from_config(key: Secret, config: &EffectiveConfig) -> AnthropicProvider {
-    let model = config
-        .providers
-        .get(&ProviderName::Anthropic)
-        .and_then(|settings| settings.model.clone())
-        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    let model = anthropic_model(config);
     let timeout = Duration::from_secs(config.timeout_secs);
     AnthropicProvider::new(key, model, timeout).with_style(config.style.clone())
 }
