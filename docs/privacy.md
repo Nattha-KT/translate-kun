@@ -33,7 +33,7 @@ Once the text reaches a Provider, **their** privacy terms apply, not ours. `kun`
 - Google Cloud: [Privacy notice](https://cloud.google.com/privacy) and [Cloud Translation data usage](https://cloud.google.com/translate/data-usage)
 - Anthropic: [Privacy policy](https://www.anthropic.com/legal/privacy)
 
-If a text must never leave your machine, do not translate it with `kun`. The Secret Guard is a safety net for credentials, not a way to make private text safe to send.
+Do not use `kun` for text that your organisation does not allow to be sent to that Provider. If a text must never leave your machine, do not translate it with `kun`. The Secret Guard is a safety net for credentials, not a way to make private text safe to send.
 
 ## Related
 

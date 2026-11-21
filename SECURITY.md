@@ -28,7 +28,7 @@ This is a personal project, so the response is **best effort**. You can normally
 - The user's text leaking to a service they did not choose: there is no automatic Provider fallback, no telemetry, no cache and no history of source or translated text.
 - Credentials in the text being sent. The Secret Guard checks outgoing text first (prompt on a terminal, block in scripts).
 - Terminal escape sequences in a translation. On a terminal, control characters other than newline and tab are stripped from the Provider's output.
-- A malicious repository: a cloned Project Config cannot hold credentials or endpoints and cannot weaken the Secret Guard ([ADR 0003](docs/adr/0003-project-config-is-untrusted.md)).
+- A malicious repository: a cloned Project Config cannot hold credentials or endpoints and cannot weaken the Secret Guard ([ADR 0003](docs/adr/0003-project-config-is-untrusted.md)). On Unix, a discovered `.kun.toml` that is owned by a different user than the one running `kun` is skipped with a warning (the same idea as git's `safe.directory`), so a file planted in a shared directory such as `/tmp` is not loaded.
 
 **Your part**
 
@@ -54,7 +54,8 @@ What has been checked, and how much weight to give it.
 **Continuous checks.** These run automatically, so the assurance does not depend on one review:
 
 - **cargo-deny** runs in CI on every push and pull request. It checks dependencies for known advisories, banned crates, licences and untrusted sources (`deny.toml`).
-- **Dependabot** opens weekly pull requests for Cargo dependencies and GitHub Actions.
+- **Dependabot** opens weekly pull requests for Cargo dependencies and GitHub Actions. Every GitHub Action in the workflows is pinned by full commit SHA, and Dependabot keeps the pins up to date.
+- **CodeQL** runs static analysis on the Rust code for every push and pull request to `main`, and weekly.
 - **Fuzzing.** Three [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets (`secret_guard`, `config_parse`, `protected_terms`) run weekly in CI for a short time. See [CONTRIBUTING.md](CONTRIBUTING.md#fuzzing) to run them locally.
 - **OpenSSF Scorecard** scores the repository's security practices automatically and publishes the result. The score is shown as a badge in the [README](README.md).
 

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use kun_core::config::{
     EffectiveConfig, FileConfig, FileCredentials, Overrides, find_project_config,
-    load_project_config, load_user_config, merge, user_config_path,
+    load_project_config_if_owned, load_user_config, merge, user_config_path,
 };
 
 use crate::error::{CliError, ConfigFile};
@@ -32,9 +32,11 @@ pub fn load_settings(
     let mut warnings = Vec::new();
 
     let project = match find_project_config(start_dir) {
-        Some(path) => Some(
-            load_project_config(&path).map_err(|e| CliError::config(ConfigFile::Project, &e))?,
-        ),
+        Some(path) => {
+            let loaded = load_project_config_if_owned(&path)
+                .map_err(|e| CliError::config(ConfigFile::Project, &e))?;
+            skipped_project_warning(loaded, &mut warnings)
+        }
         None => None,
     };
     let user = load_user(home, xdg_config_home, &mut warnings)?;
@@ -46,6 +48,23 @@ pub fn load_settings(
         warnings,
         user_credentials,
     })
+}
+
+/// `None` from `load_project_config_if_owned` means the file belongs to
+/// another user and was skipped (like git's `safe.directory`), so a `.kun.toml`
+/// planted in a shared directory cannot change `kun`'s behaviour. That is not
+/// an error: add a warning and carry on with the User Config and defaults.
+///
+/// The warning is a fixed text. The path can hold user-chosen text, so it is
+/// not printed.
+fn skipped_project_warning(
+    loaded: Option<FileConfig>,
+    warnings: &mut Vec<String>,
+) -> Option<FileConfig> {
+    if loaded.is_none() {
+        warnings.push("ignoring .kun.toml: owned by another user".to_string());
+    }
+    loaded
 }
 
 /// What `kun auth status` needs from the User Config.
@@ -205,6 +224,42 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(error.exit_code(), 3);
+    }
+
+    #[test]
+    fn a_skipped_project_config_gives_a_fixed_warning_without_a_path() {
+        let mut warnings = Vec::new();
+
+        let loaded = skipped_project_warning(None, &mut warnings);
+
+        assert!(loaded.is_none());
+        assert_eq!(
+            warnings,
+            vec!["ignoring .kun.toml: owned by another user".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_loaded_project_config_gives_no_warning() {
+        let mut warnings = Vec::new();
+
+        let loaded = skipped_project_warning(Some(FileConfig::default()), &mut warnings);
+
+        assert!(loaded.is_some());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn a_project_config_we_own_is_loaded_by_load_settings() {
+        let home = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        write(&work.path().join(".kun.toml"), "max_chars = 200");
+
+        let loaded =
+            load_settings(work.path(), Some(home.path()), None, &Overrides::default()).unwrap();
+
+        assert_eq!(loaded.config.max_chars, 200);
+        assert!(loaded.warnings.is_empty());
     }
 
     #[cfg(unix)]

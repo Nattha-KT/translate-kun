@@ -7,6 +7,8 @@ use std::path::Path;
 use serde::Deserialize;
 
 use super::error::ConfigError;
+#[cfg(unix)]
+use super::owner::is_owned_by;
 use super::schema::{
     FileConfig, FileCredentials, LanguagePair, ProviderName, ProviderSettings, SecretGuardSettings,
 };
@@ -92,6 +94,47 @@ fn read_file(path: &Path) -> Result<String, ConfigError> {
 /// Read and validate a Project Config. Untrusted: see ADR 0003.
 pub fn load_project_config(path: &Path) -> Result<FileConfig, ConfigError> {
     parse_project_config(path, &read_file(path)?)
+}
+
+/// Like [`load_project_config`], but `Ok(None)` when the file is owned by a
+/// different user than the one running `kun` (Unix only; like git's
+/// `safe.directory`). The file is opened once and the owner is read from that
+/// same handle (`fstat`), so it cannot be swapped between the check and the
+/// read. A file whose owner cannot be read counts as not owned.
+#[cfg(unix)]
+pub fn load_project_config_if_owned(path: &Path) -> Result<Option<FileConfig>, ConfigError> {
+    load_project_config_if_owned_by(path, rustix::process::getuid().as_raw())
+}
+
+/// Outside Unix there is no ownership check.
+#[cfg(not(unix))]
+pub fn load_project_config_if_owned(path: &Path) -> Result<Option<FileConfig>, ConfigError> {
+    load_project_config(path).map(Some)
+}
+
+/// [`load_project_config_if_owned`] with the current uid passed in, for tests.
+#[cfg(unix)]
+fn load_project_config_if_owned_by(
+    path: &Path,
+    current_uid: u32,
+) -> Result<Option<FileConfig>, ConfigError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let io_error = |source| ConfigError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
+    let mut file = std::fs::File::open(path).map_err(io_error)?;
+    let owned = match file.metadata() {
+        Ok(metadata) => is_owned_by(metadata.uid(), current_uid),
+        Err(_) => false,
+    };
+    if !owned {
+        return Ok(None);
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text).map_err(io_error)?;
+    parse_project_config(path, &text).map(Some)
 }
 
 /// Read and validate a User Config.
@@ -397,6 +440,42 @@ endpoint = "http://localhost:11434"
             }
             assert!(err.to_string().contains("nope.toml"));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_project_config_owned_by_the_current_user_is_loaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(".kun.toml");
+        std::fs::write(&file, "target = \"th\"").unwrap();
+
+        let loaded = load_project_config_if_owned(&file).unwrap().unwrap();
+        assert_eq!(loaded.target, Some(lang("th")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_project_config_owned_by_another_user_is_skipped_unread() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(".kun.toml");
+        // Not valid TOML: skipping must happen before any parsing.
+        std::fs::write(&file, "this is = = not toml").unwrap();
+        let file_uid = std::fs::metadata(&file).unwrap().uid();
+
+        // Pretend we are somebody else, so no `chown` or root is needed.
+        let loaded = load_project_config_if_owned_by(&file, file_uid + 1).unwrap();
+        assert!(loaded.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_project_config_that_cannot_be_opened_is_an_io_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope.toml");
+        let err = load_project_config_if_owned(&missing).unwrap_err();
+        assert!(matches!(err, ConfigError::Io { .. }));
     }
 
     #[cfg(unix)]

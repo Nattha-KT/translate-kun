@@ -69,4 +69,15 @@ Fixes from the pre-publish security audit:
 - The Anthropic Provider's `Debug` output no longer shows the model name.
 - Docs: text given as arguments lands in shell history and `ps` (use stdin for sensitive text); all proxy variables are honoured and HTTPS always goes through `CONNECT`; the Secret Guard is the Adapter's job, not `kun-core`'s.
 
+Pre-publish hardening (S15):
+
+- Every GitHub Action in the workflows is pinned by full commit SHA, with a version comment. Dependabot keeps the pins current.
+- A discovered Project Config (`.kun.toml`) owned by a different user is skipped with a warning instead of loaded (Unix only, like git's `safe.directory`).
+- CodeQL static analysis (SAST) for the Rust code runs on push and pull requests to `main`, and weekly.
+- `.github/CODEOWNERS` names the maintainer as owner of the whole repository and of the security-sensitive paths.
+
+### Documentation
+
+- README: new "Where your text goes" note. Your text, after the Secret Guard, goes to the Provider you chose and is handled under that Provider's terms. `docs/privacy.md` says the same.
+
 [Unreleased]: https://github.com/Nattha-KT/translate-kun/commits/main
