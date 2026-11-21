@@ -2,7 +2,7 @@
 
 ## Background
 
-A read-only Opus 5.5 audit of main at `186b403` concluded **safe to publish, no blockers**. The owner approved fixing these findings. The IDs refer to the audit report.
+A read-only Opus 5.5 audit of main at `f51d4e3` concluded **safe to publish, no blockers**. The owner approved fixing these findings. The IDs refer to the audit report.
 
 ## Read first
 
