@@ -236,12 +236,22 @@ fn json_of(output: &[u8]) -> serde_json::Value {
     serde_json::from_slice(output).expect("stdout must be one JSON object")
 }
 
+/// An empty regular file to use as stdin. Unlike `Stdio::null()` it is known
+/// to be empty on every platform (the Windows `NUL` device cannot be told
+/// apart safely, see `input.rs`), so no "ignoring stdin" warning is expected.
+fn empty_stdin(sandbox: &Sandbox) -> std::process::Stdio {
+    let path = sandbox.work_dir().join("empty-stdin.txt");
+    std::fs::write(&path, "").unwrap();
+    std::process::Stdio::from(std::fs::File::open(&path).unwrap())
+}
+
 #[test]
 fn json_output_has_the_documented_shape() {
-    let output = Sandbox::new()
+    let sandbox = Sandbox::new();
+    let output = sandbox
         .std_command()
         .args(["--json", "--provider", "fake", ":th", "hello"])
-        .stdin(std::process::Stdio::null())
+        .stdin(empty_stdin(&sandbox))
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -257,10 +267,11 @@ fn json_output_has_the_documented_shape() {
 
 #[test]
 fn json_warnings_move_from_stderr_into_the_object() {
-    let output = Sandbox::new()
+    let sandbox = Sandbox::new();
+    let output = sandbox
         .std_command()
         .args(["--json", "--provider", "fake", "en:en", "hello"])
-        .stdin(std::process::Stdio::null())
+        .stdin(empty_stdin(&sandbox))
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -283,6 +294,9 @@ fn json_errors_still_go_to_stderr_with_the_same_exit_code() {
 
 // --- stdin that carries nothing -----------------------------------------
 
+// Unix only: the Windows `NUL` device cannot be detected without `unsafe`,
+// so there it still gets the warning.
+#[cfg(unix)]
 #[test]
 fn stdin_from_dev_null_does_not_trigger_the_ignored_stdin_warning() {
     use std::process::Stdio;
