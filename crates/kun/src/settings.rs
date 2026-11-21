@@ -32,9 +32,10 @@ pub fn load_settings(
     let mut warnings = Vec::new();
 
     let project = match find_project_config(start_dir) {
-        Some(path) => Some(
-            load_project_config(&path).map_err(|e| CliError::config(ConfigFile::Project, &e))?,
-        ),
+        Some(path) => {
+            let owned = project_config_is_ours(&path);
+            load_project(&path, owned, &mut warnings)?
+        }
         None => None,
     };
     let user = load_user(home, xdg_config_home, &mut warnings)?;
@@ -46,6 +47,40 @@ pub fn load_settings(
         warnings,
         user_credentials,
     })
+}
+
+/// Loads a discovered Project Config, unless it is owned by another user.
+///
+/// A file owned by someone else is skipped with a warning (like git's
+/// `safe.directory`), so a `.kun.toml` planted in a shared directory cannot
+/// change `kun`'s behaviour. This is not an error: `kun` carries on with the
+/// User Config and defaults.
+fn load_project(
+    path: &Path,
+    owned: bool,
+    warnings: &mut Vec<String>,
+) -> Result<Option<FileConfig>, CliError> {
+    if !owned {
+        warnings.push(format!(
+            "ignoring {}: owned by another user",
+            path.display()
+        ));
+        return Ok(None);
+    }
+    let config =
+        load_project_config(path).map_err(|e| CliError::config(ConfigFile::Project, &e))?;
+    Ok(Some(config))
+}
+
+#[cfg(unix)]
+fn project_config_is_ours(path: &Path) -> bool {
+    kun_core::config::is_owned_by_current_user(path)
+}
+
+/// Ownership is not checked off Unix.
+#[cfg(not(unix))]
+fn project_config_is_ours(_path: &Path) -> bool {
+    true
 }
 
 /// What `kun auth status` needs from the User Config.
@@ -205,6 +240,47 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(error.exit_code(), 3);
+    }
+
+    #[test]
+    fn a_project_config_owned_by_another_user_is_skipped_with_a_warning() {
+        let work = tempfile::tempdir().unwrap();
+        let file = work.path().join(".kun.toml");
+        write(&file, "max_chars = 200");
+        let mut warnings = Vec::new();
+
+        let loaded = load_project(&file, false, &mut warnings).unwrap();
+
+        assert!(loaded.is_none());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("owned by another user"));
+        assert!(warnings[0].contains(".kun.toml"));
+    }
+
+    #[test]
+    fn a_skipped_project_config_is_not_even_parsed() {
+        // Not valid TOML, yet skipping it is not an error.
+        let work = tempfile::tempdir().unwrap();
+        let file = work.path().join(".kun.toml");
+        write(&file, "this is = = not toml");
+        let mut warnings = Vec::new();
+
+        assert!(load_project(&file, false, &mut warnings).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_project_config_owned_by_the_current_user_is_loaded() {
+        let work = tempfile::tempdir().unwrap();
+        let file = work.path().join(".kun.toml");
+        write(&file, "max_chars = 200");
+        let mut warnings = Vec::new();
+
+        let loaded = load_project(&file, project_config_is_ours(&file), &mut warnings)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(loaded.max_chars, Some(200));
+        assert!(warnings.is_empty());
     }
 
     #[cfg(unix)]

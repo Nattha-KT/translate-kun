@@ -1767,6 +1767,7 @@ dependencies = [
  "keyring",
  "log",
  "regex",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",

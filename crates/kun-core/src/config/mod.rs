@@ -9,6 +9,7 @@
 //! - `schema`: the config types (`FileConfig`, `EffectiveConfig`, ...)
 //! - `error`: `ConfigError`
 //! - `load`: reading files, validation and the `0600` permission check
+//! - `owner`: skipping a Project Config owned by another user (Unix)
 //! - `trust`: keys a Project Config may never contain (ADR 0003)
 //! - `merge`: precedence and the tighten-only rules
 //! - `discover`: finding the Project Config and the User Config path
@@ -17,6 +18,7 @@ mod discover;
 mod error;
 mod load;
 mod merge;
+mod owner;
 mod schema;
 mod trust;
 
@@ -26,6 +28,9 @@ pub use error::ConfigError;
 pub use load::is_private_file;
 pub use load::{load_project_config, load_user_config};
 pub use merge::merge;
+pub use owner::is_owned_by;
+#[cfg(unix)]
+pub use owner::is_owned_by_current_user;
 pub use schema::{
     DEFAULT_MAX_CHARS, DEFAULT_TIMEOUT_SECS, EffectiveConfig, FileConfig, FileCredentials,
     LanguagePair, Overrides, ProviderName, ProviderSettings, SecretGuardSettings,

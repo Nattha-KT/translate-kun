@@ -71,6 +71,10 @@ A bare word is always text: `kun I love it` translates "I love it". A language i
 
 See [docs/usage.md](docs/usage.md) for every command and flag.
 
+### Where your text goes
+
+After the Secret Guard has checked it, your text is sent to the Provider you chose (Google Cloud Translation or Anthropic). From that point it is handled under that Provider's terms and privacy policy. Do not use `kun` for text that your organisation does not allow to be sent to that Provider. See [docs/privacy.md](docs/privacy.md) for exactly what leaves your machine.
+
 ## Configuration
 
 `kun` reads two optional TOML files:

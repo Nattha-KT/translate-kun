@@ -28,6 +28,9 @@ thiserror.workspace = true
 toml.workspace = true
 ureq.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
 [features]
 # Tests that call real Provider APIs. Never enabled in CI:
 # `cargo test -p translate-kun-core --features live`
