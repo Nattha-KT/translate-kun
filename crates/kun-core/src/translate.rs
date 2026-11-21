@@ -375,7 +375,7 @@ mod tests {
     // --- Protected Terms ------------------------------------------------------
 
     fn terms(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| s.to_string()).collect()
+        list.iter().map(ToString::to_string).collect()
     }
 
     /// Remembers every text it was asked to translate, then behaves like the

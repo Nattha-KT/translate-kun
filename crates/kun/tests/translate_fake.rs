@@ -1,5 +1,5 @@
 //! End-to-end tests with the fake Provider. Run with:
-//! `cargo test --workspace --features kun/fake-provider`
+//! `cargo test --workspace --features translate-kun/fake-provider`
 
 #![cfg(feature = "fake-provider")]
 

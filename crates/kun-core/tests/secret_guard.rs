@@ -475,9 +475,8 @@ fn invalid_extra_pattern_is_an_error_not_a_panic() {
 fn invalid_pattern_error_never_shows_the_pattern() {
     // A user may paste a real key as a pattern; an invalid one must not leak.
     let leaky = format!("{}{}(", "AKIA", "IOSFODNN7EXAMPLE");
-    let error = match SecretGuard::new(&[leaky]) {
-        Err(error) => error,
-        Ok(_) => panic!("expected an error for an invalid pattern"),
+    let Err(error) = SecretGuard::new(&[leaky]) else {
+        panic!("expected an error for an invalid pattern")
     };
 
     let display = error.to_string();

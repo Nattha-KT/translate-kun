@@ -1,8 +1,8 @@
 //! The Anthropic Provider (Claude, via the Messages API over plain HTTPS).
 //!
 //! Like the Google Provider, the HTTP call is thin and the parts worth testing
-//! are pure functions: [`request_body`], [`parse_response`], [`status_error`]
-//! and [`transport_error`]. The HTTP, timeout, proxy and logging rules are the
+//! are pure functions: `request_body`, `parse_response`, `status_error`
+//! and `transport_error`. The HTTP, timeout, proxy and logging rules are the
 //! same as in `google.rs` (see there for the reasons).
 //!
 //! The text to translate is data, not instructions: it goes in the user
