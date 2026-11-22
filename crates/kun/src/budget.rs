@@ -9,16 +9,16 @@
 //! - [`status`], [`set_limit_in`] and [`unset_limit_in`] are the `kun budget`
 //!   commands.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use kun_core::budget::{
-    BudgetDecision, Month, UsageState, decide, load_usage, save_usage, usage_state_path,
-    write_private_file,
+    BudgetDecision, Month, UsageState, check_usage_writable, decide, load_usage, save_usage,
+    usage_state_path, write_private_file,
 };
 use kun_core::config::{BudgetSettings, ProviderName, user_config_path};
 use kun_core::provider::{Provider, ProviderError, Translation, TranslationRequest};
-use toml_edit::{DocumentMut, Item, Value};
+use toml_edit::{DocumentMut, Item, RawString, Value};
 
 use crate::args::BudgetAction;
 use crate::error::{CliError, ConfigFile, ConfigProblem};
@@ -58,7 +58,9 @@ fn char_count(text: &str) -> u64 {
 /// A Provider that enforces the Usage Budget of one built-in Provider.
 ///
 /// With no limit it passes every call straight through and never reads or
-/// writes the usage file, so the default behaviour is unchanged.
+/// writes the usage file, so the default behaviour is unchanged. With a
+/// limit, the usage file is read at the first Provider call (not before), so
+/// a run that sends nothing never touches it.
 pub struct BudgetedProvider {
     inner: Box<dyn Provider>,
     active: Option<Active>,
@@ -69,78 +71,150 @@ struct Active {
     provider: ProviderName,
     limit: u64,
     month: Month,
-    path: PathBuf,
-    state: RefCell<UsageState>,
-    /// Set when a call was refused. Holds the numbers for the message.
-    refused: Cell<BudgetDecision>,
-    /// Set when a counted call could not be written to the usage file.
-    save_failed: Cell<bool>,
+    /// `None` when there is neither HOME nor XDG_STATE_HOME.
+    path: Option<PathBuf>,
+    /// Everything that changes during the run, in one place.
+    run: RefCell<Run>,
+}
+
+/// What changes during a run.
+struct Run {
+    /// The counters. `None` until the first Provider call loads them.
+    usage: Option<UsageState>,
+    /// Why a call was stopped before it was sent.
+    stopped: Option<Stopped>,
+    /// A successful call could not be written to the usage file.
+    save_failed: bool,
+}
+
+/// Why a call was stopped before it was sent.
+#[derive(Clone, Copy)]
+enum Stopped {
+    /// The call would pass the limit. Holds the numbers for the message.
+    OverLimit { used: u64, needed: u64, limit: u64 },
+    /// There is no place for the usage file.
+    NoUsagePath,
+    /// The usage file cannot be read or is not valid.
+    Unreadable,
+    /// The usage file cannot be saved, so the counter could not be kept.
+    NotSaveable,
 }
 
 impl BudgetedProvider {
-    /// Wraps `inner`. With a `limit`, reads the usage file now: a missing file
-    /// means 0 used, and an unreadable or invalid file fails closed.
+    /// Wraps `inner`. Nothing is read or written yet.
     pub fn new(
         inner: Box<dyn Provider>,
         provider: ProviderName,
         limit: Option<u64>,
         usage_path: Option<&Path>,
         month: Month,
-    ) -> Result<BudgetedProvider, CliError> {
-        let Some(limit) = limit else {
-            return Ok(BudgetedProvider {
-                inner,
-                active: None,
-            });
-        };
-        let path = usage_path.ok_or(CliError::Unexpected(
-            "cannot find a place for the usage file: set HOME or XDG_STATE_HOME",
-        ))?;
-        let state = match load_usage(path) {
-            Ok(Some(state)) => state,
-            Ok(None) => UsageState::new(month),
-            Err(_) => return Err(CliError::UsageFileUnusable),
-        };
-        Ok(BudgetedProvider {
-            inner,
-            active: Some(Active {
-                provider,
-                limit,
-                month,
-                path: path.to_path_buf(),
-                state: RefCell::new(state),
-                refused: Cell::new(BudgetDecision::Allowed),
-                save_failed: Cell::new(false),
+    ) -> BudgetedProvider {
+        let active = limit.map(|limit| Active {
+            provider,
+            limit,
+            month,
+            path: usage_path.map(Path::to_path_buf),
+            run: RefCell::new(Run {
+                usage: None,
+                stopped: None,
+                save_failed: false,
             }),
-        })
+        });
+        BudgetedProvider { inner, active }
     }
 
-    /// The error to report when a call was refused by the budget. A refused
-    /// call comes back from the translation as a generic Provider error; this
-    /// is the real reason.
-    pub fn refusal(&self) -> Option<CliError> {
+    /// The error to report when the budget stopped a call before it was sent.
+    /// The stopped call comes back from the translation as a generic Provider
+    /// error; this is the real reason.
+    pub fn failure(&self) -> Option<CliError> {
         let active = self.active.as_ref()?;
-        match active.refused.get() {
-            BudgetDecision::Allowed => None,
-            BudgetDecision::Refused {
+        let stopped = active.run.borrow().stopped?;
+        Some(match stopped {
+            Stopped::OverLimit {
                 used,
                 needed,
                 limit,
-            } => Some(CliError::BudgetReached {
+            } => CliError::BudgetReached {
                 provider: provider_label(active.provider),
                 used,
                 limit,
                 needed,
                 month: active.month,
+            },
+            Stopped::NoUsagePath => CliError::Unexpected(
+                "cannot find a place for the usage file: set HOME or XDG_STATE_HOME",
+            ),
+            Stopped::Unreadable => CliError::UsageFileUnusable,
+            Stopped::NotSaveable => CliError::UsageFileNotSaveable,
+        })
+    }
+
+    /// True when a successful call could not be added to the usage file. The
+    /// translation is still good; the caller prints it and then reports
+    /// [`CliError::UsageCounterNotSaved`].
+    pub fn counter_not_saved(&self) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|active| active.run.borrow().save_failed)
+    }
+}
+
+impl Active {
+    /// Before the first Provider call: reads the counters and proves they can
+    /// be saved, so a counter that cannot be kept is found before anything is sent.
+    fn load(&self, run: &mut Run) -> Result<(), Stopped> {
+        let Some(path) = &self.path else {
+            return Err(Stopped::NoUsagePath);
+        };
+        let state = match load_usage(path) {
+            Ok(Some(state)) => state,
+            Ok(None) => UsageState::new(self.month),
+            Err(_) => return Err(Stopped::Unreadable),
+        };
+        check_usage_writable(path).map_err(|_| Stopped::NotSaveable)?;
+        run.usage = Some(state);
+        Ok(())
+    }
+
+    /// The checks before a call. `Ok` holds the characters it will send.
+    fn before_call(&self, request: &TranslationRequest) -> Result<u64, Stopped> {
+        let mut run = self.run.borrow_mut();
+        if run.save_failed {
+            // A call already succeeded but its count was lost: send nothing more.
+            return Err(Stopped::NotSaveable);
+        }
+        if run.usage.is_none() {
+            self.load(&mut run)?;
+        }
+        let used = run
+            .usage
+            .as_ref()
+            .map_or(0, |usage| usage.used(self.provider, self.month));
+        let needed = char_count(&request.text);
+        match decide(used, needed, Some(self.limit)) {
+            BudgetDecision::Allowed => Ok(needed),
+            BudgetDecision::Refused {
+                used,
+                needed,
+                limit,
+            } => Err(Stopped::OverLimit {
+                used,
+                needed,
+                limit,
             }),
         }
     }
 
-    /// True when a successful call could not be added to the usage file.
-    pub fn counter_not_saved(&self) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|active| active.save_failed.get())
+    /// After a successful call: counts it and writes the file.
+    fn after_call(&self, needed: u64) {
+        let mut run = self.run.borrow_mut();
+        let (Some(path), Some(usage)) = (&self.path, run.usage.as_mut()) else {
+            return;
+        };
+        usage.add(self.provider, self.month, needed);
+        if save_usage(path, usage).is_err() {
+            run.save_failed = true;
+        }
     }
 }
 
@@ -154,23 +228,19 @@ impl Provider for BudgetedProvider {
             return self.inner.translate(request);
         };
 
-        // Check before sending: a refusal makes no network call.
-        let needed = char_count(&request.text);
-        let used = active.state.borrow().used(active.provider, active.month);
-        let decision = decide(used, needed, Some(active.limit));
-        if decision != BudgetDecision::Allowed {
-            active.refused.set(decision);
-            // The caller replaces this with the budget error (`refusal`).
-            return Err(ProviderError::QuotaExceeded);
-        }
+        // Check before sending: a stopped call makes no network call.
+        let needed = match active.before_call(request) {
+            Ok(needed) => needed,
+            Err(stopped) => {
+                active.run.borrow_mut().stopped = Some(stopped);
+                // The caller replaces this with the real reason (`failure`).
+                return Err(ProviderError::QuotaExceeded);
+            }
+        };
 
         // Count only after a successful response.
         let translation = self.inner.translate(request)?;
-        let mut state = active.state.borrow_mut();
-        state.add(active.provider, active.month, needed);
-        if save_usage(&active.path, &state).is_err() {
-            active.save_failed.set(true);
-        }
+        active.after_call(needed);
         Ok(translation)
     }
 }
@@ -179,18 +249,27 @@ impl Provider for BudgetedProvider {
 
 /// The budget line of a dry run, or `None` when no limit is set for the
 /// Provider. Reads the usage file (never writes it).
+///
+/// `would_send` is the plan: when a real run makes no Provider call (the
+/// Source Language is the Target Language) nothing can be refused, and an
+/// unreadable usage file does not matter, so it gives `None` then.
 pub fn dry_run_budget(
     provider: ProviderName,
     budget: &BudgetSettings,
     usage_path: Option<&Path>,
     month: Month,
     needs: u64,
+    would_send: bool,
 ) -> Result<Option<DryRunBudget>, CliError> {
     let Some(limit) = budget.limit(provider) else {
         return Ok(None);
     };
-    let used = used_this_month(provider, usage_path, month)?;
-    let would_refuse = decide(used, needs, Some(limit)) != BudgetDecision::Allowed;
+    let used = match load_state(usage_path) {
+        Ok(state) => used_in(state.as_ref(), provider, month),
+        Err(_) if !would_send => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let would_refuse = would_send && decide(used, needs, Some(limit)) != BudgetDecision::Allowed;
     Ok(Some(DryRunBudget {
         limit,
         used,
@@ -199,21 +278,18 @@ pub fn dry_run_budget(
     }))
 }
 
-/// Characters counted for `provider` this month. No file means 0; a file that
+/// The usage file, read once. No path or no file means no state; a file that
 /// cannot be used is an error.
-fn used_this_month(
-    provider: ProviderName,
-    usage_path: Option<&Path>,
-    month: Month,
-) -> Result<u64, CliError> {
+fn load_state(usage_path: Option<&Path>) -> Result<Option<UsageState>, CliError> {
     let Some(path) = usage_path else {
-        return Ok(0);
+        return Ok(None);
     };
-    match load_usage(path) {
-        Ok(Some(state)) => Ok(state.used(provider, month)),
-        Ok(None) => Ok(0),
-        Err(_) => Err(CliError::UsageFileUnusable),
-    }
+    load_usage(path).map_err(|_| CliError::UsageFileUnusable)
+}
+
+/// Characters counted for `provider` in `month` (0 without a state).
+fn used_in(state: Option<&UsageState>, provider: ProviderName, month: Month) -> u64 {
+    state.map_or(0, |state| state.used(provider, month))
 }
 
 // --- kun budget status -----------------------------------------------------
@@ -243,14 +319,16 @@ pub fn status(
     usage_path: Option<&Path>,
     month: Month,
 ) -> Result<Status, CliError> {
-    let mut rows = Vec::new();
-    for provider in ProviderName::ALL {
-        rows.push(StatusRow {
+    // One read, so every row comes from the same version of the file.
+    let state = load_state(usage_path)?;
+    let rows = ProviderName::ALL
+        .into_iter()
+        .map(|provider| StatusRow {
             provider: provider_label(provider),
             limit: budget.limit(provider),
-            used: used_this_month(provider, usage_path, month)?,
-        });
-    }
+            used: used_in(state.as_ref(), provider, month),
+        })
+        .collect();
     Ok(Status { month, rows })
 }
 
@@ -370,8 +448,54 @@ pub fn unset_limit_in(text: &str, provider: ProviderName) -> Result<Option<Strin
     let table = item
         .as_table_like_mut()
         .ok_or_else(user_config_unparsable)?;
-    if table.remove(key_name(provider)).is_none() {
+
+    let key = key_name(provider);
+    let keys: Vec<String> = table.iter().map(|(name, _)| name.to_string()).collect();
+    let Some(position) = keys.iter().position(|name| name == key) else {
         return Ok(None);
+    };
+
+    // In TOML the comment lines above a key belong to that key. They are the
+    // user's text, so they move to what follows instead of being dropped.
+    let comments = table
+        .get_key_value(key)
+        .and_then(|(key, _)| key.leaf_decor().prefix())
+        .and_then(RawString::as_str)
+        .filter(|prefix| prefix.contains('#'))
+        .map(str::to_string);
+    table.remove(key);
+
+    let mut homeless = None;
+    if let Some(comments) = comments {
+        match keys.get(position + 1) {
+            Some(next) => {
+                if let Some((mut next_key, _)) = table.get_key_value_mut(next) {
+                    let decor = next_key.leaf_decor_mut();
+                    let old = decor.prefix().and_then(RawString::as_str).unwrap_or("");
+                    let merged = format!("{comments}{old}");
+                    decor.set_prefix(merged);
+                }
+            }
+            None => homeless = Some(comments),
+        }
+    }
+    // The removed key was the last one: keep its comments above the table.
+    if let Some(comments) = homeless {
+        match item.as_table_mut() {
+            Some(table) => {
+                let old = table
+                    .decor()
+                    .prefix()
+                    .and_then(RawString::as_str)
+                    .unwrap_or("");
+                let merged = format!("{old}{comments}");
+                table.decor_mut().set_prefix(merged);
+            }
+            None => {
+                let merged = format!("{}{comments}", doc.trailing().as_str().unwrap_or(""));
+                doc.set_trailing(merged);
+            }
+        }
     }
     Ok(Some(doc.to_string()))
 }
@@ -449,6 +573,7 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::rc::Rc;
 
     use super::*;
@@ -493,11 +618,7 @@ mod tests {
         (Box::new(provider), calls)
     }
 
-    fn guarded(
-        inner: Box<dyn Provider>,
-        limit: Option<u64>,
-        path: &Path,
-    ) -> Result<BudgetedProvider, CliError> {
+    fn guarded(inner: Box<dyn Provider>, limit: Option<u64>, path: &Path) -> BudgetedProvider {
         BudgetedProvider::new(inner, ProviderName::Google, limit, Some(path), month())
     }
 
@@ -506,7 +627,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.json");
         let (inner, calls) = counting(FakeProvider::new());
-        let provider = guarded(inner, Some(100), &path).unwrap();
+        let provider = guarded(inner, Some(100), &path);
 
         provider.translate(&request("hello")).unwrap();
         provider.translate(&request("สวัสดี")).unwrap();
@@ -515,7 +636,8 @@ mod tests {
         let state = load_usage(&path).unwrap().unwrap();
         assert_eq!(state.used(ProviderName::Google, month()), 11);
         assert_eq!(state.used(ProviderName::Anthropic, month()), 0);
-        assert!(provider.refusal().is_none());
+        assert!(provider.failure().is_none());
+        assert!(!provider.counter_not_saved());
     }
 
     #[test]
@@ -523,14 +645,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.json");
         let (inner, calls) = counting(FakeProvider::failing(ProviderError::Authentication));
-        let provider = guarded(inner, Some(100), &path).unwrap();
+        let provider = guarded(inner, Some(100), &path);
 
         let error = provider.translate(&request("hello")).unwrap_err();
 
         assert_eq!(error, ProviderError::Authentication);
         assert_eq!(calls.get(), 1);
         assert!(!path.exists(), "nothing succeeded, so nothing is saved");
-        assert!(provider.refusal().is_none());
+        assert!(provider.failure().is_none());
     }
 
     #[test]
@@ -538,13 +660,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.json");
         let (inner, calls) = counting(FakeProvider::new());
-        let provider = guarded(inner, Some(7), &path).unwrap();
+        let provider = guarded(inner, Some(7), &path);
 
         provider.translate(&request("hello")).unwrap();
         provider.translate(&request("hello")).unwrap_err();
 
         assert_eq!(calls.get(), 1, "the refused call must not be sent");
-        let refusal = provider.refusal().unwrap();
+        let refusal = provider.failure().unwrap();
         assert_eq!(refusal.exit_code(), 8);
         assert!(refusal.to_string().contains("5 of 7 characters used"));
         // The first call stays counted.
@@ -558,7 +680,7 @@ mod tests {
         let path = dir.path().join("usage.json");
         std::fs::write(&path, "{ corrupt").unwrap();
         let (inner, _) = counting(FakeProvider::new());
-        let provider = guarded(inner, None, &path).unwrap();
+        let provider = guarded(inner, None, &path);
 
         provider.translate(&request("hello")).unwrap();
 
@@ -567,15 +689,20 @@ mod tests {
     }
 
     #[test]
-    fn a_corrupt_usage_file_with_a_limit_fails_closed() {
+    fn a_corrupt_usage_file_with_a_limit_fails_closed_at_the_first_call() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.json");
         std::fs::write(&path, "{ corrupt").unwrap();
-        let (inner, _) = counting(FakeProvider::new());
+        let (inner, calls) = counting(FakeProvider::new());
+        // Nothing is read when the wrapper is built: a run that never calls
+        // the Provider (Source Language equals Target Language) must not fail.
+        let provider = guarded(inner, Some(100), &path);
+        assert!(provider.failure().is_none());
 
-        let error = guarded(inner, Some(100), &path).err().unwrap();
+        provider.translate(&request("hello")).unwrap_err();
 
-        assert_eq!(error.exit_code(), 3);
+        assert_eq!(calls.get(), 0);
+        assert_eq!(provider.failure().unwrap().exit_code(), 3);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ corrupt");
     }
 
@@ -588,7 +715,7 @@ mod tests {
         state.add(ProviderName::Google, old, 1_000_000);
         save_usage(&path, &state).unwrap();
         let (inner, _) = counting(FakeProvider::new());
-        let provider = guarded(inner, Some(10), &path).unwrap();
+        let provider = guarded(inner, Some(10), &path);
 
         provider.translate(&request("hello")).unwrap();
 
@@ -598,26 +725,88 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_counter_that_cannot_be_saved_is_flagged_not_fatal() {
+    fn a_counter_that_cannot_be_saved_stops_the_run_before_any_call() {
         let dir = tempfile::tempdir().unwrap();
         // A dangling symlink where the directory should be: the file is
-        // simply missing (0 used), but the directory cannot be created.
+        // simply missing (0 used), but nothing can ever be saved there.
         let link = dir.path().join("state");
         std::os::unix::fs::symlink(dir.path().join("nowhere"), &link).unwrap();
         let path = link.join("usage.json");
-        let (inner, _) = counting(FakeProvider::new());
-        let provider = guarded(inner, Some(100), &path).unwrap();
+        let (inner, calls) = counting(FakeProvider::new());
+        let provider = guarded(inner, Some(100), &path);
 
-        assert!(provider.translate(&request("hello")).is_ok());
-        assert!(provider.counter_not_saved());
+        provider.translate(&request("hello")).unwrap_err();
+        provider.translate(&request("hello")).unwrap_err();
+
+        assert_eq!(calls.get(), 0, "no request may be sent");
+        let error = provider.failure().unwrap();
+        assert_eq!(error.exit_code(), 3);
+        assert!(error.to_string().contains("cannot be saved"));
+    }
+
+    /// Succeeds, but first breaks the state directory, so the counter cannot
+    /// be committed afterwards (a failure after the preflight passed).
+    struct BreaksTheStateDir {
+        dir: PathBuf,
+    }
+
+    impl Provider for BreaksTheStateDir {
+        fn name(&self) -> &'static str {
+            "fake"
+        }
+
+        fn translate(&self, request: &TranslationRequest) -> Result<Translation, ProviderError> {
+            std::fs::remove_dir_all(&self.dir).unwrap();
+            std::fs::write(&self.dir, "now a file").unwrap();
+            FakeProvider::new().translate(request)
+        }
     }
 
     #[test]
-    fn a_limit_without_a_usage_path_is_an_error() {
-        let (inner, _) = counting(FakeProvider::new());
-        let error =
-            BudgetedProvider::new(inner, ProviderName::Google, Some(5), None, month()).err();
-        assert_eq!(error.unwrap().exit_code(), 1);
+    fn a_counter_that_fails_to_commit_after_a_call_is_flagged_and_stops_the_next_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_dir = dir.path().join("state");
+        let path = state_dir.join("usage.json");
+        let inner = Box::new(BreaksTheStateDir {
+            dir: state_dir.clone(),
+        });
+        let provider = guarded(inner, Some(100), &path);
+
+        // The call itself succeeded: the translation must not be lost.
+        assert!(provider.translate(&request("hello")).is_ok());
+        assert!(provider.counter_not_saved());
+
+        // But nothing more is sent while the counter cannot be saved.
+        provider.translate(&request("hello")).unwrap_err();
+        assert_eq!(provider.failure().unwrap().exit_code(), 3);
+    }
+
+    #[test]
+    fn a_limit_without_a_usage_path_fails_at_the_first_call() {
+        let (inner, calls) = counting(FakeProvider::new());
+        let provider = BudgetedProvider::new(inner, ProviderName::Google, Some(5), None, month());
+
+        provider.translate(&request("hello")).unwrap_err();
+
+        assert_eq!(calls.get(), 0);
+        assert_eq!(provider.failure().unwrap().exit_code(), 1);
+    }
+
+    #[test]
+    fn repeated_runs_never_pass_the_budget() {
+        // Each run is a fresh wrapper, like a fresh `kun` process.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        let mut sent = 0;
+        for _ in 0..10 {
+            let (inner, calls) = counting(FakeProvider::new());
+            let provider = guarded(inner, Some(12), &path);
+            let _ = provider.translate(&request("hello"));
+            sent += calls.get() * 5;
+        }
+        assert_eq!(sent, 10);
+        let state = load_usage(&path).unwrap().unwrap();
+        assert_eq!(state.used(ProviderName::Google, month()), 10);
     }
 
     #[test]
@@ -629,20 +818,71 @@ mod tests {
             anthropic_chars_per_month: None,
         };
 
-        let none = dry_run_budget(ProviderName::Anthropic, &budget, Some(&path), month(), 5);
-        assert!(none.unwrap().is_none());
+        let dry = |provider, needs, would_send| {
+            dry_run_budget(provider, &budget, Some(&path), month(), needs, would_send)
+        };
 
-        let report = dry_run_budget(ProviderName::Google, &budget, Some(&path), month(), 11)
-            .unwrap()
-            .unwrap();
+        assert!(dry(ProviderName::Anthropic, 5, true).unwrap().is_none());
+
+        let report = dry(ProviderName::Google, 11, true).unwrap().unwrap();
         assert_eq!((report.limit, report.used, report.needs), (10, 0, 11));
         assert!(report.would_refuse);
 
-        let report = dry_run_budget(ProviderName::Google, &budget, Some(&path), month(), 10)
-            .unwrap()
-            .unwrap();
+        let report = dry(ProviderName::Google, 10, true).unwrap().unwrap();
         assert!(!report.would_refuse);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_dry_run_that_sends_nothing_is_never_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        let mut state = UsageState::new(month());
+        state.add(ProviderName::Google, month(), 10);
+        save_usage(&path, &state).unwrap();
+        // The limit was lowered below the usage, but no Provider call is planned.
+        let budget = BudgetSettings {
+            google_chars_per_month: Some(5),
+            anthropic_chars_per_month: None,
+        };
+
+        let report = dry_run_budget(
+            ProviderName::Google,
+            &budget,
+            Some(&path),
+            month(),
+            0,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!((report.limit, report.used, report.needs), (5, 10, 0));
+        assert!(!report.would_refuse);
+    }
+
+    #[test]
+    fn a_dry_run_that_sends_nothing_ignores_an_unreadable_usage_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        std::fs::write(&path, "{ corrupt").unwrap();
+        let budget = BudgetSettings {
+            google_chars_per_month: Some(5),
+            anthropic_chars_per_month: None,
+        };
+
+        let nothing_sent = dry_run_budget(
+            ProviderName::Google,
+            &budget,
+            Some(&path),
+            month(),
+            0,
+            false,
+        );
+        assert!(nothing_sent.unwrap().is_none());
+
+        let sent = dry_run_budget(ProviderName::Google, &budget, Some(&path), month(), 3, true);
+        assert_eq!(sent.err().unwrap().exit_code(), 3);
     }
 
     // --- status ---------------------------------------------------------
@@ -766,6 +1006,45 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(text, "# top\n[budget]\nanthropic_chars_per_month = 5\n");
+    }
+
+    #[test]
+    fn unset_keeps_the_comments_above_the_removed_key() {
+        // The comment above a key belongs to that key in TOML. It is the
+        // user's text: it moves to what follows instead of being dropped.
+        let original = "[budget]\n# my free tier\ngoogle_chars_per_month = 10\n# paid, small\nanthropic_chars_per_month = 5\n";
+        let text = unset_limit_in(original, ProviderName::Google)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            text,
+            "[budget]\n# my free tier\n# paid, small\nanthropic_chars_per_month = 5\n"
+        );
+    }
+
+    #[test]
+    fn unset_keeps_the_comments_of_the_last_key_too() {
+        let original = "[budget]\ngoogle_chars_per_month = 10\n# paid, small\nanthropic_chars_per_month = 5\n\n[secret_guard]\nforce_redact = true\n";
+        let text = unset_limit_in(original, ProviderName::Anthropic)
+            .unwrap()
+            .unwrap();
+        assert!(text.contains("# paid, small"), "{text}");
+        assert!(!text.contains("anthropic_chars_per_month"), "{text}");
+        assert!(text.contains("google_chars_per_month = 10"), "{text}");
+        assert!(text.contains("force_redact = true"), "{text}");
+        // Still valid TOML.
+        text.parse::<DocumentMut>().unwrap();
+    }
+
+    #[test]
+    fn unset_keeps_the_comments_of_the_only_key() {
+        let original = "# top\n[budget]\n# my free tier\ngoogle_chars_per_month = 10\n";
+        let text = unset_limit_in(original, ProviderName::Google)
+            .unwrap()
+            .unwrap();
+        assert!(text.contains("# my free tier"), "{text}");
+        assert!(text.contains("# top"), "{text}");
+        text.parse::<DocumentMut>().unwrap();
     }
 
     #[test]

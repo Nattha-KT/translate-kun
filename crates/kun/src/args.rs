@@ -20,7 +20,9 @@ Set up: `kun init` (Project Config), `kun auth login google` (API key),
 `kun budget set google 450000` (monthly usage budget), `kun completions <shell>` (shell completions).
 Exit codes: 0 ok, 1 unexpected, 2 usage, 3 config, 4 missing credentials,
 5 network or provider, 6 blocked by the Secret Guard, 7 input too large,
-8 rate limited or quota exceeded (retrying later may help).";
+8 rate limited, quota exceeded, or your local monthly usage budget reached (retrying later may help).
+Usage budget (opt-in): `kun budget set google 450000` stops `kun` before it sends more than that
+many characters a month; `kun budget` shows what is left.";
 
 /// A command-line translator for developers.
 ///

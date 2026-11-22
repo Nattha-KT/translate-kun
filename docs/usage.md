@@ -283,8 +283,11 @@ The counters live in `$XDG_STATE_HOME/kun/usage.json`, or `~/.local/state/kun/us
 
 - A missing file means 0 used. A file from another month counts as 0.
 - If a budget is set and the file cannot be read or is not valid, `kun` **fails closed**: exit 3, nothing is sent, and the message tells you to delete the file. Without a budget for the Provider in use, the file is ignored and left untouched.
+- The file is only used when `kun` is about to call the Provider. A run that sends nothing (the Source Language is the Target Language) never reads it.
+- **The counter must be saveable.** Before the first request, `kun` checks that it can write next to the usage file (the directory exists or can be created, and is writable). If it cannot, `kun` exits with 3 and sends nothing, because otherwise every run would start from the old count and the budget could be passed without limit. If saving fails *after* a request went out (rare), `kun` still prints the translation, because you paid for it, then reports the error on stderr and exits with 3. It never fails silently.
 - There is no `kun budget reset`: the counter resets by itself each month. To start from 0 sooner, delete the file by hand.
 - Two `kun` processes running at the same moment can lose an increment. `kun` does not lock the file, so the count is approximate.
+- With `--dry-run`, the `budget:` line says "no Provider call" when a real run would send nothing, and such a run is never reported as refused.
 
 ## `kun budget`
 
@@ -359,12 +362,12 @@ Where to check your account and limits:
 | 0 | Success |
 | 1 | Unexpected error (including a keychain read or write failure) |
 | 2 | Usage error: bad arguments, no text, no Target Language, `kun init` over an existing file |
-| 3 | Configuration error (including a credential or a `[budget]` in a Project Config, or a `providers.<name>.endpoint` for the Provider in use), no OS keychain for `kun auth login`, or a usage file that cannot be read while a budget is set |
+| 3 | Configuration error (including a credential or a `[budget]` in a Project Config, or a `providers.<name>.endpoint` for the Provider in use), no OS keychain for `kun auth login`, or a usage file that cannot be read or saved while a budget is set |
 | 4 | Missing credentials |
 | 5 | Network or Provider error (timeout, rejected key, unsupported language, refusal, or a translation too long for one request) |
 | 6 | Blocked by the Secret Guard, or you declined its prompt |
 | 7 | Input longer than the limit |
-| 8 | Rate limited, or the Provider's quota, credit or billing limit was reached, **or your local [usage budget](#usage-budget) was reached** (nothing was sent; raise the limit or wait for the reset). Waiting and retrying, or checking your Provider account, may help. When the Provider sends a `Retry-After` header, the message says how many seconds to wait |
+| 8 | Rate limited, or the Provider's quota, credit or billing limit was reached, **or your local [usage budget](#usage-budget) was reached** (only the call that would pass the budget is refused, before it is sent. With a Language Pair, the first call may already have gone and stays counted. Raise the limit or wait for the reset). Waiting and retrying, or checking your Provider account, may help. When the Provider sends a `Retry-After` header, the message says how many seconds to wait |
 
 ## Environment variables
 

@@ -181,14 +181,16 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
     let provider = build_provider(provider_name, &config, &sources)?;
     // The Usage Budget of the Provider in use (`config.provider`: the fake
     // Provider of the tests counts as the default one). With no limit this is
-    // a pass-through that never touches the usage file.
+    // a pass-through that never touches the usage file. With a limit the file
+    // is read at the first Provider call, so a run that sends nothing never
+    // depends on it.
     let budgeted = BudgetedProvider::new(
         provider,
         config.provider,
         config.budget.limit(config.provider),
         budget_paths().usage.as_deref(),
         Month::now(),
-    )?;
+    );
     let result = translate_with_terms(
         &budgeted,
         &guarded.text,
@@ -196,25 +198,40 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         plan.clone(),
         &config.protected_terms,
     );
-    // A call refused by the budget comes back as a generic Provider error:
-    // report the real reason (exit code 8) instead.
-    if let Some(error) = budgeted.refusal() {
+    // A call stopped by the budget comes back as a generic Provider error:
+    // report the real reason (exit code 8, or 3) instead.
+    if let Some(error) = budgeted.failure() {
         return Err(error);
     }
     let translated = result?;
-    if budgeted.counter_not_saved() {
-        warnings.add(
-            "could not update the usage counter, so the monthly usage budget may count too little",
-        );
-    }
+    // The request went out and the user paid for it: print the translation
+    // first, then report that the counter could not be saved (exit code 3).
+    let counter_error = budgeted
+        .counter_not_saved()
+        .then_some(CliError::UsageCounterNotSaved);
 
     // 7. Output: the translation on stdout, everything else on stderr
     //    (or, with `--json`, one JSON object on stdout).
     add_translation_warnings(&mut warnings, &translated);
+    print_translation(cli.json, translated, &plan, source, warnings)?;
+    match counter_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+/// Step 7: prints the translation (or, with `json`, the JSON object).
+fn print_translation(
+    json: bool,
+    translated: Translated,
+    plan: &TargetPlan,
+    source: Option<LanguageCode>,
+    warnings: Warnings,
+) -> Result<(), CliError> {
     let translation = translated.translation;
-    if cli.json {
+    if json {
         let source_used = translation.detected_source.clone().or(source);
-        let target = final_target(&plan, source_used.as_ref());
+        let target = final_target(plan, source_used.as_ref());
         let output = JsonOutput {
             schema_version: SCHEMA_VERSION,
             text: translation.text,
@@ -283,6 +300,7 @@ fn run_dry_run(
         budget_paths().usage.as_deref(),
         Month::now(),
         report.chars_to_send(),
+        report.would_send,
     )?;
     if cli.json {
         return write_stdout(&report.to_json().render());

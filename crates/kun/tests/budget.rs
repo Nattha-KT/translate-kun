@@ -489,6 +489,82 @@ fn a_corrupt_state_file_with_a_budget_fails_closed_with_exit_3() {
     sandbox.kun().args(["budget", "status"]).assert().code(3);
 }
 
+/// Makes the state directory unusable: a dangling symlink where `kun/` should
+/// be. The usage file then reads as missing (0 used) but can never be saved.
+#[cfg(unix)]
+fn break_the_state_dir(sandbox: &Sandbox) {
+    let dir = sandbox.usage_path().parent().unwrap().to_path_buf();
+    std::os::unix::fs::symlink(sandbox.work_dir().join("nowhere"), dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_counter_that_cannot_be_saved_stops_every_run_before_it_sends() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(&limit(100));
+    break_the_state_dir(&sandbox);
+
+    // Without this check every run would start from 0 and the budget could
+    // be passed without limit. Each run must fail, and send nothing.
+    for _ in 0..3 {
+        translate(&sandbox)
+            .code(3)
+            .stdout("")
+            .stderr(predicate::str::contains("cannot be saved"))
+            .stderr(predicate::str::contains("hello").not());
+    }
+    // Same for a Language Pair (two calls).
+    sandbox
+        .kun()
+        .args(["--provider", "fake", "en:th", "hello"])
+        .assert()
+        .code(3)
+        .stdout("");
+}
+
+#[test]
+fn repeated_runs_can_never_pass_the_budget() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(&limit(12));
+
+    let mut printed = 0;
+    for _ in 0..6 {
+        let output = sandbox
+            .kun()
+            .args(["--provider", "fake", ":th", "hello"])
+            .output()
+            .unwrap();
+        if output.status.success() {
+            printed += 1;
+        } else {
+            assert_eq!(output.status.code(), Some(8));
+            assert!(output.stdout.is_empty());
+        }
+    }
+    // 5 characters each: two fit in 12, the third would make 15.
+    assert_eq!(printed, 2);
+    assert_eq!(usage_json(&sandbox)["google"], 10);
+}
+
+#[test]
+fn a_run_that_sends_nothing_does_not_need_the_usage_file() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(&limit(100));
+    sandbox.write_usage("{ not json");
+
+    // Source Language equals Target Language: no Provider call at all.
+    sandbox
+        .kun()
+        .args(["--provider", "fake", "en:en", "hello"])
+        .assert()
+        .success()
+        .stdout("hello\n");
+    assert_eq!(
+        std::fs::read_to_string(sandbox.usage_path()).unwrap(),
+        "{ not json"
+    );
+}
+
 #[test]
 fn a_corrupt_state_file_without_a_budget_is_ignored_and_left_alone() {
     let sandbox = Sandbox::new();
@@ -558,6 +634,82 @@ fn a_dry_run_says_when_a_real_run_would_be_refused() {
         ))
         .stdout(predicate::str::contains("a real run would be refused"));
     assert!(!sandbox.usage_path().exists());
+}
+
+#[test]
+fn a_dry_run_that_sends_nothing_is_not_refused_even_over_the_budget() {
+    let sandbox = Sandbox::new();
+    // 10 used, and the limit lowered to 5 afterwards.
+    sandbox.write_user_config(&limit(5));
+    sandbox.write_usage(&format!(
+        r#"{{"version":1,"month":"{}","google":10,"anthropic":0}}"#,
+        current_month(&sandbox)
+    ));
+
+    // A real run returns the text unchanged, with no Provider call...
+    sandbox
+        .kun()
+        .args(["--provider", "fake", "en:en", "hello"])
+        .assert()
+        .success()
+        .stdout("hello\n");
+    // ...so the dry run must not say it would be refused.
+    sandbox
+        .kun()
+        .args(["--provider", "fake", "--dry-run", "en:en", "hello"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "budget: 10 of 5 used this month; this run needs 0",
+        ))
+        .stdout(predicate::str::contains("no Provider call"))
+        .stdout(predicate::str::contains("refused").not());
+
+    let output = sandbox
+        .kun()
+        .args([
+            "--provider",
+            "fake",
+            "--dry-run",
+            "--json",
+            "en:en",
+            "hello",
+        ])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["budget"]["would_refuse"], false);
+    assert_eq!(json["budget"]["needs"], 0);
+}
+
+#[test]
+fn unset_keeps_the_comment_lines_above_the_removed_key() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(
+        "[budget]\n# my free tier\ngoogle_chars_per_month = 10\n# paid\nanthropic_chars_per_month = 5\n",
+    );
+
+    sandbox
+        .kun()
+        .args(["budget", "unset", "google"])
+        .assert()
+        .success();
+
+    let text = std::fs::read_to_string(sandbox.user_config_path()).unwrap();
+    assert!(text.contains("# my free tier"), "{text}");
+    assert!(text.contains("# paid"), "{text}");
+    assert!(!text.contains("google_chars_per_month"), "{text}");
+    assert!(text.contains("anthropic_chars_per_month = 5"), "{text}");
+}
+
+#[test]
+fn the_help_mentions_the_usage_budget() {
+    Sandbox::new()
+        .kun()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("kun budget set google 450000"));
 }
 
 #[test]

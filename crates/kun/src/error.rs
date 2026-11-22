@@ -115,6 +115,13 @@ pub enum CliError {
     /// A Usage Budget is set but the usage file cannot be read or is not
     /// valid, so the counter is unknown. Fails closed.
     UsageFileUnusable,
+    /// A Usage Budget is set but the usage file cannot be saved (a read-only
+    /// or missing directory). Found before any request is sent, so the budget
+    /// can never be passed by runs that start from an old count.
+    UsageFileNotSaveable,
+    /// A request was sent and its translation printed, but its characters
+    /// could not be added to the usage file.
+    UsageCounterNotSaved,
     /// Something unexpected, such as a failed write to stdout.
     Unexpected(&'static str),
 }
@@ -146,7 +153,9 @@ impl CliError {
             | CliError::ExtraPattern(_)
             | CliError::KeychainUnavailable { .. }
             | CliError::EndpointNotSupported { .. }
-            | CliError::UsageFileUnusable => 3,
+            | CliError::UsageFileUnusable
+            | CliError::UsageFileNotSaveable
+            | CliError::UsageCounterNotSaved => 3,
             CliError::BudgetReached { .. } => 8,
             CliError::Provider(ProviderError::MissingCredentials)
             | CliError::NoGoogleKey
@@ -284,6 +293,16 @@ impl fmt::Display for CliError {
                  so nothing was sent. Delete it to start counting again from 0: \
                  $XDG_STATE_HOME/kun/usage.json (default ~/.local/state/kun/usage.json)",
             ),
+            CliError::UsageFileNotSaveable => f.write_str(
+                "the usage budget is set but the usage counter cannot be saved \
+                 (check that $XDG_STATE_HOME/kun, default ~/.local/state/kun, is writable), \
+                 so this request was not sent",
+            ),
+            CliError::UsageCounterNotSaved => f.write_str(
+                "the translation was printed, but the usage counter could not be saved, \
+                 so the monthly usage budget may count too little. \
+                 Check that $XDG_STATE_HOME/kun, default ~/.local/state/kun, is writable",
+            ),
         }
     }
 }
@@ -340,6 +359,8 @@ mod tests {
             (CliError::Unexpected("x"), 1),
             (budget_reached(), 8),
             (CliError::UsageFileUnusable, 3),
+            (CliError::UsageFileNotSaveable, 3),
+            (CliError::UsageCounterNotSaved, 3),
         ];
         for (error, code) in cases {
             assert_eq!(error.exit_code(), code, "{error:?}");

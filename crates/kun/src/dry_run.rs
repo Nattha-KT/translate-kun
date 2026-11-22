@@ -186,7 +186,9 @@ impl DryRunReport {
             "budget: {} of {} used this month; this run needs {}\n",
             budget.used, budget.limit, budget.needs
         );
-        if budget.would_refuse {
+        if !self.would_send {
+            out.push_str("budget: no Provider call, so nothing would be counted\n");
+        } else if budget.would_refuse {
             out.push_str("budget: a real run would be refused (exit code 8)\n");
         } else {
             out.push_str("budget: a real run would be sent\n");
@@ -368,6 +370,21 @@ mod tests {
                 .render_human()
                 .contains("a real run would be refused")
         );
+    }
+
+    #[test]
+    fn a_dry_run_without_a_request_says_no_provider_call_and_never_refuses() {
+        let mut report = report_for(clean("hello"), Some(lang("th")));
+        report.budget = Some(DryRunBudget {
+            limit: 5,
+            used: 10,
+            needs: 0,
+            would_refuse: false,
+        });
+        let human = report.render_human();
+        assert!(human.contains("budget: 10 of 5 used this month; this run needs 0\n"));
+        assert!(human.contains("no Provider call"));
+        assert!(!human.contains("refused"));
     }
 
     #[test]

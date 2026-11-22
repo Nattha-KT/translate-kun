@@ -257,8 +257,19 @@ pub fn write_private_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         name.to_string_lossy(),
         std::process::id()
     ));
+    let result = create_private_temp(&temp)
+        .and_then(|mut file| file.write_all(bytes))
+        .and_then(|()| std::fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
+/// A new, empty file at `temp` with mode `0600` on Unix.
+fn create_private_temp(temp: &Path) -> std::io::Result<std::fs::File> {
     // A leftover from a crashed run of the same process id.
-    let _ = std::fs::remove_file(&temp);
+    let _ = std::fs::remove_file(temp);
 
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -267,14 +278,29 @@ pub fn write_private_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let result = options
-        .open(&temp)
-        .and_then(|mut file| file.write_all(bytes))
-        .and_then(|()| std::fs::rename(&temp, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result
+    options.open(temp)
+}
+
+/// Proves that [`save_usage`] can work: creates the directory and a temporary
+/// file next to `path`, then removes it. Call it before the first request, so
+/// a counter that cannot be saved is found before anything is sent.
+pub fn check_usage_writable(path: &Path) -> Result<(), UsageError> {
+    let probe = || -> std::io::Result<()> {
+        if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)?;
+        }
+        let name = path
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("no file name"))?;
+        let temp = path.with_file_name(format!(
+            ".{}.probe-{}",
+            name.to_string_lossy(),
+            std::process::id()
+        ));
+        create_private_temp(&temp)?;
+        std::fs::remove_file(&temp)
+    };
+    probe().map_err(|_| UsageError::WriteFailed)
 }
 
 #[cfg(test)]
@@ -464,6 +490,35 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&other).unwrap(), "precious");
         assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
         assert_eq!(std::fs::read_to_string(&link).unwrap(), "new");
+    }
+
+    #[test]
+    fn the_probe_creates_the_directory_and_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a/b/usage.json");
+
+        check_usage_writable(&path).unwrap();
+
+        let names: Vec<_> = std::fs::read_dir(dir.path().join("a/b"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert!(names.is_empty(), "{names:?}");
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_probe_fails_when_the_state_directory_cannot_be_used() {
+        let dir = tempfile::tempdir().unwrap();
+        // A dangling symlink where the directory should be.
+        let link = dir.path().join("state");
+        std::os::unix::fs::symlink(dir.path().join("nowhere"), &link).unwrap();
+
+        assert_eq!(
+            check_usage_writable(&link.join("usage.json")),
+            Err(UsageError::WriteFailed)
+        );
     }
 
     #[test]
