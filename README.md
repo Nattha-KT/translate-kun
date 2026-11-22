@@ -65,6 +65,8 @@ sha256sum -c translate-kun-aarch64-apple-darwin.tar.xz.sha256       # Linux
 shasum -a 256 -c translate-kun-aarch64-apple-darwin.tar.xz.sha256   # macOS
 ```
 
+Look for `OK`. A line such as `WARNING: 1 line is improperly formatted` is harmless: the `.sha256` file ends with an extra blank line.
+
 Each release also has a software bill of materials (SBOM, CycloneDX), and the dependency list is embedded in the binary: `cargo install cargo-audit --locked`, then `cargo audit bin $(which kun)`. See [SECURITY.md](SECURITY.md#security-assurance).
 
 ## Quick start
