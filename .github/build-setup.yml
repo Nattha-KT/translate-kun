@@ -1,0 +1,19 @@
+# Extra steps that cargo-dist adds to the `build-local-artifacts` jobs of
+# release.yml, right after checkout (see `github-build-setup` in
+# dist-workspace.toml). They make THIRD-PARTY-LICENSES.md, which dist then puts
+# in every archive (`include`). about.toml and about.hbs are the inputs.
+
+# cargo-about 0.9.3 has a prebuilt binary for every runner except macOS Intel.
+- name: Install cargo-about (prebuilt)
+  if: ${{ !(runner.os == 'macOS' && runner.arch == 'X64') }}
+  uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2.90.7
+  with:
+    tool: cargo-about@0.9.3
+# macOS Intel: build it from source. `--features cli` is needed to get the binary.
+- name: Install cargo-about (from source, macOS Intel)
+  if: ${{ runner.os == 'macOS' && runner.arch == 'X64' }}
+  shell: bash
+  run: cargo install cargo-about --version 0.9.3 --locked --features cli
+- name: Generate THIRD-PARTY-LICENSES.md
+  shell: bash
+  run: cargo about generate --locked --config about.toml about.hbs --output-file THIRD-PARTY-LICENSES.md

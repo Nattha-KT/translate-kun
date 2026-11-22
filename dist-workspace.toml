@@ -1,0 +1,57 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'. The release workflow is `.github/workflows/release.yml`.
+# See docs/development/releasing.md.
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.34.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app. Homebrew only: no shell or
+# PowerShell installer (`curl | sh`).
+installers = ["homebrew"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Where to host releases
+hosting = "github"
+# Checksum file (`<archive>.sha256`) next to every archive
+checksum = "sha256"
+# Homebrew: the tap repository and the formula name (`brew install machngai/tap/kun`).
+# The token is the repository secret HOMEBREW_TAP_TOKEN (cargo-dist's fixed name).
+tap = "machngai/homebrew-tap"
+formula = "kun"
+# `./publish-crates` is .github/workflows/publish-crates.yml, called as a
+# reusable workflow. dist skips every publish job for pre-releases.
+publish-jobs = ["homebrew", "./publish-crates"]
+# Pre-releases (`v0.1.0-rc.1`) are not published to Homebrew. This is the
+# default; it is written here so nobody turns it on by accident.
+publish-prereleases = false
+# Build provenance attestations (`gh attestation verify`)
+github-attestations = true
+# Embed the dependency list in the binary (`cargo audit bin`)
+cargo-auditable = true
+# SBOM (CycloneDX)
+cargo-cyclonedx = true
+# Pull requests only get a plan, nothing is built or uploaded
+pr-run-mode = "plan"
+# release.yml is edited by hand after `dist generate` (permissions, tag handling,
+# bot identity, pinned cargo-auditable, publish job). Without this, `dist plan`
+# fails on the hand edits. The list is in docs/development/releasing.md.
+allow-dirty = ["ci"]
+# Files added to the root of every archive. LICENSE-MIT, LICENSE-APACHE and
+# README.md are picked up by dist on its own; NOTICE is not, so it is listed.
+# THIRD-PARTY-LICENSES.md is made by the build-setup step below (cargo-about)
+# before the build.
+include = ["NOTICE", "THIRD-PARTY-LICENSES.md"]
+# Extra steps in the build jobs: generate THIRD-PARTY-LICENSES.md
+github-build-setup = "../build-setup.yml"
+
+# Every GitHub Action in release.yml is pinned by full commit SHA (S15 rule).
+# Each line is `"<action>" = "<commit>"`, with the version in a comment.
+# Dependabot cannot update these: bump them by hand (see docs/development/releasing.md).
+[dist.github-action-commits]
+"actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1" # v7.0.1
+"actions/upload-artifact" = "cf430e030ddbb5b0abf93d22962f4752f3646cd9" # v7.0.2
+"actions/download-artifact" = "9000827ccba6bdab643e8b6fd33ac0654aef8333" # v8.0.2
+"actions/attest" = "1e69f48acb82d1966a394da916b4c1698aa569d6" # v4.2.2
