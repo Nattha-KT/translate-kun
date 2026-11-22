@@ -42,6 +42,6 @@ mod tests {
     #[test]
     fn version_is_not_empty() {
         assert!(!version().is_empty());
-        assert_eq!(version(), "0.1.0");
+        assert_eq!(version(), env!("CARGO_PKG_VERSION"));
     }
 }

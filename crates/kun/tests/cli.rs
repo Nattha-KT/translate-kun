@@ -12,7 +12,7 @@ fn version_flag_prints_name_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("kun 0.1.0\n");
+        .stdout(format!("kun {}\n", env!("CARGO_PKG_VERSION")));
 }
 
 #[test]
