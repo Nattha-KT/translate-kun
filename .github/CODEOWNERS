@@ -1,11 +1,11 @@
 # Everything is owned by the maintainer.
-*                                     @Nattha-KT
+*                                     @natthakac
 
 # Sensitive paths, listed explicitly for clarity.
-/crates/kun-core/src/secret_guard*    @Nattha-KT
-/crates/kun-core/src/credentials*     @Nattha-KT
-/crates/kun-core/src/config/          @Nattha-KT
-/crates/kun-core/src/provider/        @Nattha-KT
-/.github/                             @Nattha-KT
-/deny.toml                            @Nattha-KT
-/SECURITY.md                          @Nattha-KT
+/crates/kun-core/src/secret_guard*    @natthakac
+/crates/kun-core/src/credentials*     @natthakac
+/crates/kun-core/src/config/          @natthakac
+/crates/kun-core/src/provider/        @natthakac
+/.github/                             @natthakac
+/deny.toml                            @natthakac
+/SECURITY.md                          @natthakac
