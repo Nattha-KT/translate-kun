@@ -21,7 +21,9 @@ checksum = "sha256"
 # The token is the repository secret HOMEBREW_TAP_TOKEN (cargo-dist's fixed name).
 tap = "machngai/homebrew-tap"
 formula = "kun"
-publish-jobs = ["homebrew"]
+# `./publish-crates` is .github/workflows/publish-crates.yml, called as a
+# reusable workflow. dist skips every publish job for pre-releases.
+publish-jobs = ["homebrew", "./publish-crates"]
 # Pre-releases (`v0.1.0-rc.1`) are not published to Homebrew. This is the
 # default; it is written here so nobody turns it on by accident.
 publish-prereleases = false
@@ -33,8 +35,9 @@ cargo-auditable = true
 cargo-cyclonedx = true
 # Pull requests only get a plan, nothing is built or uploaded
 pr-run-mode = "plan"
-# release.yml is edited by hand after `dist generate` (job permissions, bot
-# identity). Without this, `dist plan` fails on the hand edits.
+# release.yml is edited by hand after `dist generate` (permissions, tag handling,
+# bot identity, pinned cargo-auditable, publish job). Without this, `dist plan`
+# fails on the hand edits. The list is in docs/development/releasing.md.
 allow-dirty = ["ci"]
 # Files added to the root of every archive. LICENSE-MIT, LICENSE-APACHE and
 # README.md are picked up by dist on its own; NOTICE is not, so it is listed.

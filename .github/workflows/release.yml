@@ -14,16 +14,21 @@
 # title/body based on your changelogs.
 #
 # HAND-MAINTAINED AFTER GENERATION (`allow-dirty = ["ci"]` in
-# dist-workspace.toml). `dist generate` makes this file, but three things are
-# edited by hand, and a regenerate would undo them: see
-# docs/development/releasing.md ("Regenerating release.yml").
-#   1. `permissions`: read-only for the workflow, `contents: write` only on the
-#      `host` job (the one that creates the GitHub Release).
-#   2. The Homebrew commit author is the GitHub Actions bot, not "axo bot".
-#   3. Action SHAs come from `[dist.github-action-commits]`, so they survive a
-#      regenerate; the rest of this file does not need hand edits.
+# dist-workspace.toml). `dist generate` makes this file, but the edits below
+# are made by hand, and a regenerate would undo them. The full list, and how to
+# re-apply it, is in docs/development/releasing.md ("Hand edits to re-apply
+# after dist generate"). Search this file for "HAND EDIT".
+#   1. Permissions: read-only workflow default; `contents: write` only on `host`.
+#   2. The tag is never pasted into shell source: it goes through `env: TAG`
+#      and is used quoted (script injection hardening).
+#   3. The Homebrew commit author is the GitHub Actions bot.
+#   4. cargo-auditable is installed at a pinned version.
+#   5. The custom publish job `custom-publish-crates`: correct `uses:` path, no
+#      `secrets: inherit`, minimal permissions.
+# Action SHAs come from `[dist.github-action-commits]` and survive a regenerate.
 
 name: Release
+# HAND EDIT 1: dist generates `contents: write` for the whole workflow.
 permissions:
   "contents": "read"
 
@@ -60,11 +65,12 @@ jobs:
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
+      # HAND EDIT 2: no `tag-flag` output. The tag is passed on through `env`.
       tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
       publishing: ${{ !github.event.pull_request }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ !github.event.pull_request && github.ref_name || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -86,8 +92,14 @@ jobs:
       # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
       # but also really annoying to build CI around when it needs secrets to work right.)
       - id: plan
+        # HAND EDIT 2: `$TAG` is empty on pull requests (plan only).
+        shell: bash
         run: |
-          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          if [ -n "$TAG" ]; then
+            dist host --steps=create "--tag=$TAG" --output-format=json > plan-dist-manifest.json
+          else
+            dist plan --output-format=json > plan-dist-manifest.json
+          fi
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -141,10 +153,15 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
-      - name: "Install cargo-about"
+      - name: "Install cargo-about (prebuilt)"
         uses: "taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c"
+        if: "${{ !(runner.os == 'macOS' && runner.arch == 'X64') }}"
         with:
           "tool": "cargo-about@0.9.3"
+      - name: "Install cargo-about (from source, macOS Intel)"
+        if: "${{ runner.os == 'macOS' && runner.arch == 'X64' }}"
+        run: "cargo install cargo-about --version 0.9.3 --locked --features cli"
+        shell: "bash"
       - name: "Generate THIRD-PARTY-LICENSES.md"
         run: "cargo about generate --locked --config about.toml about.hbs --output-file THIRD-PARTY-LICENSES.md"
         shell: "bash"
@@ -157,15 +174,25 @@ jobs:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
+      # HAND EDIT 4: dist generates `matrix.install_cargo_auditable.run`, which
+      # installs the *latest* cargo-auditable. A pinned version is used instead.
+      # (taiki-e/install-action has a prebuilt cargo-auditable for all 5 runners.)
       - name: Install cargo-auditable
-        run: ${{ matrix.install_cargo_auditable.run }}
+        uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c
+        with:
+          tool: cargo-auditable@0.7.7
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
       - name: Build artifacts
+        # HAND EDIT 2: bash on every runner (also Windows), and the tag comes
+        # from `env: TAG`, quoted. It is empty on pull requests.
+        shell: bash
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
           # Actually do builds and make zips and whatnot
-          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+          dist build ${TAG:+"--tag=$TAG"} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
       - name: Attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
@@ -226,8 +253,11 @@ jobs:
           merge-multiple: true
       - id: cargo-dist
         shell: bash
+        # HAND EDIT 2: the tag comes from `env: TAG`, quoted.
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
+          dist build ${TAG:+"--tag=$TAG"} --output-format=json "--artifacts=global" > dist-manifest.json
           echo "dist ran successfully"
 
           # Parse out what we just built and upload it to scratch storage
@@ -267,8 +297,10 @@ jobs:
     if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # HAND EDIT 2: the tag is used through `$TAG`, quoted, never pasted into the script.
+      TAG: ${{ needs.plan.outputs.tag }}
     runs-on: "ubuntu-22.04"
-    # Only this job creates the GitHub Release and uploads to it.
+    # HAND EDIT 1: only this job creates the GitHub Release and uploads to it.
     permissions:
       "contents": "write"
     outputs:
@@ -294,7 +326,7 @@ jobs:
       - id: host
         shell: bash
         run: |
-          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
+          dist host ${TAG:+"--tag=$TAG"} --steps=upload --steps=release --output-format=json > dist-manifest.json
           echo "artifacts uploaded and released successfully"
           cat dist-manifest.json
           echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -325,7 +357,7 @@ jobs:
           # Write and read notes from a file to avoid quoting breaking things
           echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
 
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          gh release create "$TAG" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
   publish-homebrew-formula:
     needs:
@@ -335,6 +367,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PLAN: ${{ needs.plan.outputs.val }}
+      # HAND EDIT 3: commit as the GitHub Actions bot, not cargo-dist's default.
       GITHUB_USER: "github-actions[bot]"
       GITHUB_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
     if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
@@ -373,15 +406,32 @@ jobs:
           done
           git push
 
+  custom-publish-crates:
+    needs:
+      - plan
+      - host
+    if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+    # HAND EDIT 5: dist 0.34 writes `uses: $/.github/...` (a bug), which is not a
+    # valid path. No `secrets: inherit`: publishing uses OIDC only, and the
+    # workflow must not see HOMEBREW_TAP_TOKEN. `contents: read` is for
+    # `gh release view`, `id-token: write` for crates.io Trusted Publishing.
+    uses: ./.github/workflows/publish-crates.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    permissions:
+      "contents": "read"
+      "id-token": "write"
+
   announce:
     needs:
       - plan
       - host
       - publish-homebrew-formula
+      - custom-publish-crates
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') }}
+    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
     runs-on: "ubuntu-22.04"
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

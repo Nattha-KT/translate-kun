@@ -63,12 +63,16 @@ What has been checked, and how much weight to give it.
 
 ```sh
 # Provenance: needs the GitHub CLI (`gh`). It proves which repository,
-# workflow and commit built the file.
-gh attestation verify <file> -R machngai/translate-kun
+# workflow and commit built the file. --signer-workflow makes it check that the
+# signer is this repository's release workflow. (Use the file name you
+# downloaded; this is the macOS Apple silicon archive.)
+gh attestation verify translate-kun-aarch64-apple-darwin.tar.xz \
+  -R machngai/translate-kun \
+  --signer-workflow machngai/translate-kun/.github/workflows/release.yml
 
-# Checksum: the `<file>.sha256` file is published next to each archive.
-sha256sum -c <file>.sha256          # Linux
-shasum -a 256 -c <file>.sha256      # macOS
+# Checksum: an `.sha256` file is published next to each archive.
+sha256sum -c translate-kun-aarch64-apple-darwin.tar.xz.sha256       # Linux
+shasum -a 256 -c translate-kun-aarch64-apple-darwin.tar.xz.sha256   # macOS
 ```
 
 Every release also carries a CycloneDX **SBOM** (software bill of materials), and the binaries are built with `cargo-auditable`, which embeds the exact dependency list in the binary. To check an installed `kun` against the RustSec advisory database:

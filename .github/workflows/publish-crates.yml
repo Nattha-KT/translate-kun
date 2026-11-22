@@ -1,23 +1,36 @@
 name: Publish crates
 
-# Publishes `translate-kun-core` and then `translate-kun` to crates.io when a
-# GitHub Release is published. A pre-release (for example `v0.1.0-rc.1`) is
-# skipped. Authentication uses crates.io Trusted Publishing (OIDC): there is no
-# long-lived token anywhere. See docs/development/releasing.md for the one-time
-# crates.io setup (repository `machngai/translate-kun`, workflow
-# `publish-crates.yml`).
+# Publishes `translate-kun-core` and then `translate-kun` to crates.io, through
+# crates.io Trusted Publishing (OIDC): there is no long-lived token anywhere.
+#
+# How it runs:
+# - Normally it is called by release.yml as a cargo-dist custom publish job
+#   (`publish-jobs` in dist-workspace.toml). cargo-dist skips that job for
+#   pre-releases, so a `-rc` tag never reaches crates.io. A GitHub Release made
+#   by a workflow with GITHUB_TOKEN does not trigger `release: published`
+#   workflows, which is why this is a called workflow and not a release trigger.
+# - `workflow_dispatch` is the owner's manual retry: run it from the release tag
+#   (Run workflow -> "Use workflow from" -> the tag).
+#
+# crates.io checks the *calling* workflow, so each crate needs two Trusted
+# Publishing entries on crates.io: `release.yml` (normal path) and
+# `publish-crates.yml` (manual retry). See docs/development/releasing.md.
 #
 # A crate version that is already on crates.io is skipped, so a rerun is safe.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      # Passed by cargo-dist to every custom job. Not used here.
+      plan:
+        required: false
+        type: string
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}
+  group: publish-crates
   cancel-in-progress: false
 
 env:
@@ -26,10 +39,9 @@ env:
 jobs:
   publish:
     name: Publish to crates.io
-    # `workflow_dispatch` is the owner's manual retry: run it from the release tag.
-    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     permissions:
+      # `gh release view` below.
       contents: read
       # Trusted Publishing: exchange the GitHub OIDC token for a short-lived
       # crates.io token.
@@ -41,14 +53,35 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - name: Check that the tag matches the crate version
-        if: github.event_name == 'release'
+      # Every path (called by release.yml, or run by hand) goes through this
+      # check, and it runs before the OIDC token is requested. In a called
+      # workflow, `github.ref` is the ref of the calling workflow (the tag).
+      - name: Check that this is a stable release tag
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
         run: |
-          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "translate-kun") | .version')"
-          if [ "$TAG" != "v$version" ]; then
-            echo "Release tag $TAG does not match the crate version v$version" >&2
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "Not a tag: run this workflow from a release tag, not from a branch." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "The tag must be a stable version like v1.2.3 (no pre-release suffix)." >&2
+            exit 1
+          fi
+          for crate in translate-kun-core translate-kun; do
+            version="$(cargo metadata --no-deps --format-version 1 | jq -r --arg name "$crate" '.packages[] | select(.name == $name) | .version')"
+            if [ "$TAG" != "v$version" ]; then
+              echo "The tag does not match the version of $crate (v$version)." >&2
+              exit 1
+            fi
+          done
+          # A published, non-pre-release GitHub Release must exist for the tag.
+          state="$(gh release view "$TAG" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"')"
+          if [ "$state" != "false false" ]; then
+            echo "There is no published, non-pre-release GitHub Release for the tag (draft/prerelease: $state)." >&2
             exit 1
           fi
       - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6

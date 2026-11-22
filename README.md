@@ -51,13 +51,18 @@ All of these give you the `kun` command. Check it with `kun --version`.
 
 Every release archive has a SHA-256 checksum and a build provenance attestation, so you can check that the file was built by this repository's release workflow and was not changed.
 
-```sh
-# Provenance: needs the GitHub CLI (`gh`)
-gh attestation verify <file> -R machngai/translate-kun
+The examples use the macOS Apple silicon archive: replace the file name with the one you downloaded.
 
-# Checksum: download <file>.sha256 next to the archive
-sha256sum -c <file>.sha256          # Linux
-shasum -a 256 -c <file>.sha256      # macOS
+```sh
+# Provenance: needs the GitHub CLI (`gh`). --signer-workflow checks that the
+# file was built by this repository's release workflow.
+gh attestation verify translate-kun-aarch64-apple-darwin.tar.xz \
+  -R machngai/translate-kun \
+  --signer-workflow machngai/translate-kun/.github/workflows/release.yml
+
+# Checksum: download the .sha256 file next to the archive
+sha256sum -c translate-kun-aarch64-apple-darwin.tar.xz.sha256       # Linux
+shasum -a 256 -c translate-kun-aarch64-apple-darwin.tar.xz.sha256   # macOS
 ```
 
 Each release also has a software bill of materials (SBOM, CycloneDX), and the dependency list is embedded in the binary: `cargo install cargo-audit --locked`, then `cargo audit bin $(which kun)`. See [SECURITY.md](SECURITY.md#security-assurance).

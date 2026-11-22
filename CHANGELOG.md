@@ -62,7 +62,7 @@ First public version, planned as 0.1.0.
 - `cargo-dist` builds release archives for macOS (Apple silicon, Intel), Linux (x86_64, aarch64) and Windows (x86_64, best effort) with SHA-256 checksums (`.github/workflows/release.yml`). Each archive holds `kun`, the licence files, `NOTICE`, `README.md` and `THIRD-PARTY-LICENSES.md` (made with `cargo-about`).
 - Verifiable artefacts: build provenance attestations (`gh attestation verify`), an SBOM (CycloneDX), and the dependency list embedded in the binary (`cargo-auditable`, `cargo audit bin`).
 - Homebrew tap: `brew install machngai/tap/kun`. Pre-releases do not update the tap.
-- crates.io: `cargo install translate-kun`. A workflow publishes `translate-kun-core` and then `translate-kun` through crates.io Trusted Publishing when a non-pre-release GitHub Release is published (`.github/workflows/publish-crates.yml`).
+- crates.io: `cargo install translate-kun`. The release workflow calls `.github/workflows/publish-crates.yml` after a stable (non-pre-release) GitHub Release is created. It publishes `translate-kun-core` and then `translate-kun` through crates.io Trusted Publishing, and refuses to run for a branch, a pre-release tag, or a tag that does not match the crate versions.
 - Publishing metadata for both crates, and a maintainer checklist in `docs/development/releasing.md`.
 
 ### Fixed
