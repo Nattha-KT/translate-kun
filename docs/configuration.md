@@ -109,9 +109,9 @@ google_chars_per_month = 450000
 anthropic_chars_per_month = 50000
 ```
 
-It is **User Config only**: a `[budget]` table in a Project Config is a configuration error (exit 3). You can edit the file by hand, or use `kun budget set <provider> <chars>` and `kun budget unset <provider>`, which keep the rest of the file and its comments. See [usage.md](usage.md#usage-budget) for what is counted and what happens when the limit is reached.
+It is **User Config only**: a `[budget]` table in a Project Config is a configuration error (exit 3). You can edit the file by hand, or use `kun budget set <provider> <chars>` and `kun budget unset <provider>`, which keep the rest of the file and its comments. Characters are counted when a call is made and refunded if the call fails. See [usage.md](usage.md#usage-budget) for exactly what is counted and what happens when the limit is reached.
 
-The counters are kept in a separate state file, **not** in the config: `$XDG_STATE_HOME/kun/usage.json` if `XDG_STATE_HOME` is an absolute path, otherwise `~/.local/state/kun/usage.json`. It holds counters only and is written with mode `0600`. To start counting from 0 before the month ends, delete it.
+The counters are kept in a separate state file, **not** in the config: `$XDG_STATE_HOME/kun/usage.json` if `XDG_STATE_HOME` is an absolute path, otherwise `~/.local/state/kun/usage.json`. It holds counters only and is written with mode `0600`. It must be a regular file (not a symbolic link or a directory), and `kun` must be able to write it, or it sends nothing and exits with 3. To start counting from 0 before the month ends, delete it.
 
 ## Proxies
 

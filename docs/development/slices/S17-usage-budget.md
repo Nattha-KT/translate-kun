@@ -47,7 +47,7 @@ Use `tdd` (mandatory: the budget check is logic). Use `codebase-design` for the 
 3. **What counts.**
    - Count the characters of the text **actually sent** to the Provider: after redaction and Protected Terms placeholders. Use the same unit as `max_chars` (`chars().count()`).
    - Count **each Provider call**. The Language Pair second call counts as well.
-   - Count only **after a successful response**. A call that fails is not counted (document this: a Provider may still bill some failures).
+   - A call is **counted when it is made, and refunded if it fails** (the characters are reserved in the usage file before sending; see "reserve before sending" below). Document that a Provider may still bill some failures, and that a refund that cannot be written keeps the count too high, which is the safe direction.
    - Nothing is counted when the text is not sent: the Source Language equals the Target Language, `--dry-run`, Secret Guard block, size limit.
 4. **The check, before sending.**
    - If `used_this_month + chars_to_send > limit` for the Provider in use, refuse before any network call.
@@ -65,6 +65,8 @@ Use `tdd` (mandatory: the budget check is logic). Use `codebase-design` for the 
      - with a budget set, fail closed: exit 3 with a fixed message telling the user to delete the file;
      - with no budget set, ignore it and do not touch it.
    - **Only touch the file when a budget is set for the Provider in use.** With no budget, `kun` does not read or write the state file at all, so the default behaviour is unchanged.
+   - **Reserve before sending (added after review).** Before each Provider call: load the file, check `used + n <= limit` (exit 8 if not), then write `used + n` with the real atomic temp-and-rename. If that write fails for any reason, exit 3 with a fixed message and send nothing; there is no separate probe. If the call then fails, write `used` back (a refund); if the refund fails, keep the over-count, print a short fixed warning and return the Provider's own error. With a Language Pair each call reserves on its own.
+   - **Not a regular file (added after review).** Look at the path with `symlink_metadata`. A symlink (dangling or not), a directory or any other non-regular file, with a budget set, is exit 3 with a fixed message ("usage file is not a regular file; delete it"). It is never followed and never treated as missing.
    - **Concurrency:** two `kun` processes running at the same moment may lose an increment. Accept this and document it; no file locking.
 6. **Dry run.** When a budget is set, the dry-run report adds one line, `budget: <used> of <limit> used this month; this run needs <n>`, plus whether a real run would be refused. A dry run never changes the counter.
 7. **Docs.**

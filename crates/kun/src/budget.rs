@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use kun_core::budget::{
-    BudgetDecision, Month, UsageState, check_usage_writable, decide, load_usage, save_usage,
+    BudgetDecision, Month, UsageError, UsageState, decide, load_usage, save_usage,
     usage_state_path, write_private_file,
 };
 use kun_core::config::{BudgetSettings, ProviderName, user_config_path};
@@ -58,9 +58,14 @@ fn char_count(text: &str) -> u64 {
 /// A Provider that enforces the Usage Budget of one built-in Provider.
 ///
 /// With no limit it passes every call straight through and never reads or
-/// writes the usage file, so the default behaviour is unchanged. With a
-/// limit, the usage file is read at the first Provider call (not before), so
-/// a run that sends nothing never touches it.
+/// writes the usage file, so the default behaviour is unchanged.
+///
+/// With a limit, every call **reserves before it sends**: it reads the usage
+/// file, checks that the call fits, and writes the new total (a real atomic
+/// write) *before* the request is made. If that write fails for any reason,
+/// nothing is sent, so a counter that cannot be saved can never let the budget
+/// be passed. If the call then fails, the reservation is given back. A run
+/// that makes no Provider call never touches the file.
 pub struct BudgetedProvider {
     inner: Box<dyn Provider>,
     active: Option<Active>,
@@ -79,12 +84,11 @@ struct Active {
 
 /// What changes during a run.
 struct Run {
-    /// The counters. `None` until the first Provider call loads them.
-    usage: Option<UsageState>,
     /// Why a call was stopped before it was sent.
     stopped: Option<Stopped>,
-    /// A successful call could not be written to the usage file.
-    save_failed: bool,
+    /// A failed call's reservation could not be given back (the count stays
+    /// too high, which is the safe direction).
+    refund_failed: bool,
 }
 
 /// Why a call was stopped before it was sent.
@@ -96,8 +100,15 @@ enum Stopped {
     NoUsagePath,
     /// The usage file cannot be read or is not valid.
     Unreadable,
-    /// The usage file cannot be saved, so the counter could not be kept.
+    /// The usage file is a symlink, a directory or another non-regular file.
+    NotRegular,
+    /// The new total could not be written, so nothing was sent.
     NotSaveable,
+}
+
+/// A call's reservation: the counters as they were before it.
+struct Reservation {
+    before: UsageState,
 }
 
 impl BudgetedProvider {
@@ -115,9 +126,8 @@ impl BudgetedProvider {
             month,
             path: usage_path.map(Path::to_path_buf),
             run: RefCell::new(Run {
-                usage: None,
                 stopped: None,
-                save_failed: false,
+                refund_failed: false,
             }),
         });
         BudgetedProvider { inner, active }
@@ -145,75 +155,64 @@ impl BudgetedProvider {
                 "cannot find a place for the usage file: set HOME or XDG_STATE_HOME",
             ),
             Stopped::Unreadable => CliError::UsageFileUnusable,
+            Stopped::NotRegular => CliError::UsageFileNotRegular,
             Stopped::NotSaveable => CliError::UsageFileNotSaveable,
         })
     }
 
-    /// True when a successful call could not be added to the usage file. The
-    /// translation is still good; the caller prints it and then reports
-    /// [`CliError::UsageCounterNotSaved`].
-    pub fn counter_not_saved(&self) -> bool {
+    /// True when a failed call's reservation could not be given back, so the
+    /// counter is too high. The caller prints a short warning.
+    pub fn refund_failed(&self) -> bool {
         self.active
             .as_ref()
-            .is_some_and(|active| active.run.borrow().save_failed)
+            .is_some_and(|active| active.run.borrow().refund_failed)
     }
 }
 
 impl Active {
-    /// Before the first Provider call: reads the counters and proves they can
-    /// be saved, so a counter that cannot be kept is found before anything is sent.
-    fn load(&self, run: &mut Run) -> Result<(), Stopped> {
+    /// Before a call: reads the usage file, checks that the call fits, and
+    /// writes the new total. The write is the real operation, so if it fails
+    /// the call is stopped.
+    fn reserve(&self, request: &TranslationRequest) -> Result<Reservation, Stopped> {
         let Some(path) = &self.path else {
             return Err(Stopped::NoUsagePath);
         };
-        let state = match load_usage(path) {
+        let before = match load_usage(path) {
             Ok(Some(state)) => state,
             Ok(None) => UsageState::new(self.month),
+            Err(UsageError::NotRegular) => return Err(Stopped::NotRegular),
             Err(_) => return Err(Stopped::Unreadable),
         };
-        check_usage_writable(path).map_err(|_| Stopped::NotSaveable)?;
-        run.usage = Some(state);
-        Ok(())
-    }
 
-    /// The checks before a call. `Ok` holds the characters it will send.
-    fn before_call(&self, request: &TranslationRequest) -> Result<u64, Stopped> {
-        let mut run = self.run.borrow_mut();
-        if run.save_failed {
-            // A call already succeeded but its count was lost: send nothing more.
-            return Err(Stopped::NotSaveable);
-        }
-        if run.usage.is_none() {
-            self.load(&mut run)?;
-        }
-        let used = run
-            .usage
-            .as_ref()
-            .map_or(0, |usage| usage.used(self.provider, self.month));
+        let used = before.used(self.provider, self.month);
         let needed = char_count(&request.text);
-        match decide(used, needed, Some(self.limit)) {
-            BudgetDecision::Allowed => Ok(needed),
-            BudgetDecision::Refused {
+        if let BudgetDecision::Refused {
+            used,
+            needed,
+            limit,
+        } = decide(used, needed, Some(self.limit))
+        {
+            return Err(Stopped::OverLimit {
                 used,
                 needed,
                 limit,
-            } => Err(Stopped::OverLimit {
-                used,
-                needed,
-                limit,
-            }),
+            });
         }
+
+        let mut after = before.clone();
+        after.add(self.provider, self.month, needed);
+        save_usage(path, &after).map_err(|_| Stopped::NotSaveable)?;
+        Ok(Reservation { before })
     }
 
-    /// After a successful call: counts it and writes the file.
-    fn after_call(&self, needed: u64) {
-        let mut run = self.run.borrow_mut();
-        let (Some(path), Some(usage)) = (&self.path, run.usage.as_mut()) else {
+    /// After a failed call: writes the counters as they were. If that fails
+    /// the count stays too high, which is the safe direction for a budget.
+    fn refund(&self, reservation: &Reservation) {
+        let Some(path) = &self.path else {
             return;
         };
-        usage.add(self.provider, self.month, needed);
-        if save_usage(path, usage).is_err() {
-            run.save_failed = true;
+        if save_usage(path, &reservation.before).is_err() {
+            self.run.borrow_mut().refund_failed = true;
         }
     }
 }
@@ -228,9 +227,9 @@ impl Provider for BudgetedProvider {
             return self.inner.translate(request);
         };
 
-        // Check before sending: a stopped call makes no network call.
-        let needed = match active.before_call(request) {
-            Ok(needed) => needed,
+        // Reserve before sending: a stopped call makes no network call.
+        let reservation = match active.reserve(request) {
+            Ok(reservation) => reservation,
             Err(stopped) => {
                 active.run.borrow_mut().stopped = Some(stopped);
                 // The caller replaces this with the real reason (`failure`).
@@ -238,10 +237,12 @@ impl Provider for BudgetedProvider {
             }
         };
 
-        // Count only after a successful response.
-        let translation = self.inner.translate(request)?;
-        active.after_call(needed);
-        Ok(translation)
+        // On success the reservation is the count. On failure, give it back.
+        let result = self.inner.translate(request);
+        if result.is_err() {
+            active.refund(&reservation);
+        }
+        result
     }
 }
 
@@ -284,7 +285,10 @@ fn load_state(usage_path: Option<&Path>) -> Result<Option<UsageState>, CliError>
     let Some(path) = usage_path else {
         return Ok(None);
     };
-    load_usage(path).map_err(|_| CliError::UsageFileUnusable)
+    load_usage(path).map_err(|error| match error {
+        UsageError::NotRegular => CliError::UsageFileNotRegular,
+        _ => CliError::UsageFileUnusable,
+    })
 }
 
 /// Characters counted for `provider` in `month` (0 without a state).
@@ -637,22 +641,128 @@ mod tests {
         assert_eq!(state.used(ProviderName::Google, month()), 11);
         assert_eq!(state.used(ProviderName::Anthropic, month()), 0);
         assert!(provider.failure().is_none());
-        assert!(!provider.counter_not_saved());
+        assert!(!provider.refund_failed());
+    }
+
+    /// Records what the usage file says at the moment the request is made.
+    struct SeesTheFile {
+        path: PathBuf,
+        seen: Rc<Cell<u64>>,
+    }
+
+    impl Provider for SeesTheFile {
+        fn name(&self) -> &'static str {
+            "fake"
+        }
+
+        fn translate(&self, request: &TranslationRequest) -> Result<Translation, ProviderError> {
+            let state = load_usage(&self.path).unwrap().unwrap();
+            self.seen.set(state.used(ProviderName::Google, month()));
+            FakeProvider::new().translate(request)
+        }
     }
 
     #[test]
-    fn a_failed_call_is_not_counted() {
+    fn the_characters_are_reserved_before_the_request_is_made() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.json");
+        let seen = Rc::new(Cell::new(0));
+        let inner = Box::new(SeesTheFile {
+            path: path.clone(),
+            seen: Rc::clone(&seen),
+        });
+        let provider = guarded(inner, Some(100), &path);
+
+        provider.translate(&request("hello")).unwrap();
+
+        assert_eq!(seen.get(), 5, "the count must be saved before sending");
+        let state = load_usage(&path).unwrap().unwrap();
+        assert_eq!(state.used(ProviderName::Google, month()), 5);
+    }
+
+    #[test]
+    fn a_failed_call_gives_its_reservation_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        let mut before = UsageState::new(month());
+        before.add(ProviderName::Google, month(), 3);
+        save_usage(&path, &before).unwrap();
         let (inner, calls) = counting(FakeProvider::failing(ProviderError::Authentication));
         let provider = guarded(inner, Some(100), &path);
 
         let error = provider.translate(&request("hello")).unwrap_err();
 
+        // The Provider's own error comes back, and the count is as before.
         assert_eq!(error, ProviderError::Authentication);
         assert_eq!(calls.get(), 1);
-        assert!(!path.exists(), "nothing succeeded, so nothing is saved");
+        assert_eq!(load_usage(&path).unwrap(), Some(before));
         assert!(provider.failure().is_none());
+        assert!(!provider.refund_failed());
+    }
+
+    /// Breaks the state directory, then fails: the refund cannot be written.
+    struct BreaksTheStateDirThenFails {
+        dir: PathBuf,
+    }
+
+    impl Provider for BreaksTheStateDirThenFails {
+        fn name(&self) -> &'static str {
+            "fake"
+        }
+
+        fn translate(&self, _: &TranslationRequest) -> Result<Translation, ProviderError> {
+            std::fs::remove_dir_all(&self.dir).unwrap();
+            std::fs::write(&self.dir, "now a file").unwrap();
+            Err(ProviderError::Authentication)
+        }
+    }
+
+    #[test]
+    fn a_refund_that_cannot_be_written_keeps_the_over_count_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_dir = dir.path().join("state");
+        let path = state_dir.join("usage.json");
+        let inner = Box::new(BreaksTheStateDirThenFails {
+            dir: state_dir.clone(),
+        });
+        let provider = guarded(inner, Some(100), &path);
+
+        let error = provider.translate(&request("hello")).unwrap_err();
+
+        // Still the Provider's own error, not a budget error.
+        assert_eq!(error, ProviderError::Authentication);
+        assert!(provider.failure().is_none());
+        assert!(provider.refund_failed());
+    }
+
+    #[test]
+    fn a_language_pair_refunds_only_the_call_that_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        // The first call works, the second fails.
+        struct FailsSecond(Cell<u32>);
+        impl Provider for FailsSecond {
+            fn name(&self) -> &'static str {
+                "fake"
+            }
+            fn translate(
+                &self,
+                request: &TranslationRequest,
+            ) -> Result<Translation, ProviderError> {
+                self.0.set(self.0.get() + 1);
+                if self.0.get() == 2 {
+                    return Err(ProviderError::Authentication);
+                }
+                FakeProvider::new().translate(request)
+            }
+        }
+        let provider = guarded(Box::new(FailsSecond(Cell::new(0))), Some(100), &path);
+
+        provider.translate(&request("hello")).unwrap();
+        provider.translate(&request("hello")).unwrap_err();
+
+        let state = load_usage(&path).unwrap().unwrap();
+        assert_eq!(state.used(ProviderName::Google, month()), 5);
     }
 
     #[test]
@@ -685,7 +795,7 @@ mod tests {
         provider.translate(&request("hello")).unwrap();
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ corrupt");
-        assert!(!provider.counter_not_saved());
+        assert!(!provider.refund_failed());
     }
 
     #[test]
@@ -744,41 +854,41 @@ mod tests {
         assert!(error.to_string().contains("cannot be saved"));
     }
 
-    /// Succeeds, but first breaks the state directory, so the counter cannot
-    /// be committed afterwards (a failure after the preflight passed).
-    struct BreaksTheStateDir {
-        dir: PathBuf,
-    }
-
-    impl Provider for BreaksTheStateDir {
-        fn name(&self) -> &'static str {
-            "fake"
-        }
-
-        fn translate(&self, request: &TranslationRequest) -> Result<Translation, ProviderError> {
-            std::fs::remove_dir_all(&self.dir).unwrap();
-            std::fs::write(&self.dir, "now a file").unwrap();
-            FakeProvider::new().translate(request)
-        }
-    }
-
     #[test]
-    fn a_counter_that_fails_to_commit_after_a_call_is_flagged_and_stops_the_next_call() {
+    fn a_usage_file_that_is_not_a_regular_file_stops_every_run_before_any_call() {
         let dir = tempfile::tempdir().unwrap();
-        let state_dir = dir.path().join("state");
-        let path = state_dir.join("usage.json");
-        let inner = Box::new(BreaksTheStateDir {
-            dir: state_dir.clone(),
-        });
+        let path = dir.path().join("usage.json");
+        std::fs::create_dir(&path).unwrap();
+
+        // Each run is a fresh wrapper, like a fresh `kun` process.
+        for _ in 0..3 {
+            let (inner, calls) = counting(FakeProvider::new());
+            let provider = guarded(inner, Some(100), &path);
+
+            provider.translate(&request("hello")).unwrap_err();
+
+            assert_eq!(calls.get(), 0, "no request may be sent");
+            let error = provider.failure().unwrap();
+            assert_eq!(error.exit_code(), 3);
+            assert!(error.to_string().contains("not a regular file"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_as_the_usage_file_stops_the_run_before_any_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        std::os::unix::fs::symlink(dir.path().join("nowhere"), &path).unwrap();
+        let (inner, calls) = counting(FakeProvider::new());
         let provider = guarded(inner, Some(100), &path);
 
-        // The call itself succeeded: the translation must not be lost.
-        assert!(provider.translate(&request("hello")).is_ok());
-        assert!(provider.counter_not_saved());
-
-        // But nothing more is sent while the counter cannot be saved.
         provider.translate(&request("hello")).unwrap_err();
+
+        assert_eq!(calls.get(), 0);
         assert_eq!(provider.failure().unwrap().exit_code(), 3);
+        // The symlink was not followed, so its target was never created.
+        assert!(!dir.path().join("nowhere").exists());
     }
 
     #[test]

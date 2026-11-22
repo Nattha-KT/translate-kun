@@ -115,13 +115,14 @@ pub enum CliError {
     /// A Usage Budget is set but the usage file cannot be read or is not
     /// valid, so the counter is unknown. Fails closed.
     UsageFileUnusable,
-    /// A Usage Budget is set but the usage file cannot be saved (a read-only
-    /// or missing directory). Found before any request is sent, so the budget
-    /// can never be passed by runs that start from an old count.
+    /// A Usage Budget is set but the new total could not be written before a
+    /// request (a read-only or missing directory, a file that cannot be
+    /// replaced). Nothing is sent, so the budget can never be passed by runs
+    /// that start from an old count.
     UsageFileNotSaveable,
-    /// A request was sent and its translation printed, but its characters
-    /// could not be added to the usage file.
-    UsageCounterNotSaved,
+    /// A Usage Budget is set but the usage file is a symlink, a directory or
+    /// another file that is not a regular file. Never followed.
+    UsageFileNotRegular,
     /// Something unexpected, such as a failed write to stdout.
     Unexpected(&'static str),
 }
@@ -155,7 +156,7 @@ impl CliError {
             | CliError::EndpointNotSupported { .. }
             | CliError::UsageFileUnusable
             | CliError::UsageFileNotSaveable
-            | CliError::UsageCounterNotSaved => 3,
+            | CliError::UsageFileNotRegular => 3,
             CliError::BudgetReached { .. } => 8,
             CliError::Provider(ProviderError::MissingCredentials)
             | CliError::NoGoogleKey
@@ -298,10 +299,10 @@ impl fmt::Display for CliError {
                  (check that $XDG_STATE_HOME/kun, default ~/.local/state/kun, is writable), \
                  so this request was not sent",
             ),
-            CliError::UsageCounterNotSaved => f.write_str(
-                "the translation was printed, but the usage counter could not be saved, \
-                 so the monthly usage budget may count too little. \
-                 Check that $XDG_STATE_HOME/kun, default ~/.local/state/kun, is writable",
+            CliError::UsageFileNotRegular => f.write_str(
+                "the usage budget is set but the usage file is not a regular file \
+                 (a symbolic link, a directory or something else), so nothing was sent. \
+                 Delete it: $XDG_STATE_HOME/kun/usage.json (default ~/.local/state/kun/usage.json)",
             ),
         }
     }
@@ -360,7 +361,7 @@ mod tests {
             (budget_reached(), 8),
             (CliError::UsageFileUnusable, 3),
             (CliError::UsageFileNotSaveable, 3),
-            (CliError::UsageCounterNotSaved, 3),
+            (CliError::UsageFileNotRegular, 3),
         ];
         for (error, code) in cases {
             assert_eq!(error.exit_code(), code, "{error:?}");

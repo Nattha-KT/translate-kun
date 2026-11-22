@@ -176,6 +176,10 @@ pub enum UsageError {
     /// The file was read but is not a valid usage file.
     #[error("the usage file is not valid")]
     Corrupt,
+    /// The path is a symlink, a directory or another thing that is not a
+    /// regular file. It is never followed.
+    #[error("the usage file is not a regular file")]
+    NotRegular,
     /// The file could not be written.
     #[error("the usage file could not be written")]
     WriteFailed,
@@ -211,7 +215,18 @@ pub fn usage_state_path(home: Option<&Path>, xdg_state_home: Option<&Path>) -> O
 }
 
 /// Reads the usage file. `Ok(None)` when there is no file.
+///
+/// The path itself is looked at without following symlinks: a symlink (even
+/// a dangling one), a directory or anything else that is not a regular file
+/// is [`UsageError::NotRegular`], never "no file". Otherwise a counter that
+/// can never be saved would read as 0 on every run.
 pub fn load_usage(path: &Path) -> Result<Option<UsageState>, UsageError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => return Err(UsageError::NotRegular),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(UsageError::Unreadable),
+    }
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -279,28 +294,6 @@ fn create_private_temp(temp: &Path) -> std::io::Result<std::fs::File> {
         options.mode(0o600);
     }
     options.open(temp)
-}
-
-/// Proves that [`save_usage`] can work: creates the directory and a temporary
-/// file next to `path`, then removes it. Call it before the first request, so
-/// a counter that cannot be saved is found before anything is sent.
-pub fn check_usage_writable(path: &Path) -> Result<(), UsageError> {
-    let probe = || -> std::io::Result<()> {
-        if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir)?;
-        }
-        let name = path
-            .file_name()
-            .ok_or_else(|| std::io::Error::other("no file name"))?;
-        let temp = path.with_file_name(format!(
-            ".{}.probe-{}",
-            name.to_string_lossy(),
-            std::process::id()
-        ));
-        create_private_temp(&temp)?;
-        std::fs::remove_file(&temp)
-    };
-    probe().map_err(|_| UsageError::WriteFailed)
 }
 
 #[cfg(test)]
@@ -448,11 +441,11 @@ mod tests {
     }
 
     #[test]
-    fn a_directory_in_place_of_the_file_is_unreadable() {
+    fn a_directory_in_place_of_the_file_is_not_a_regular_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("usage.json");
         std::fs::create_dir(&path).unwrap();
-        assert_eq!(load_usage(&path), Err(UsageError::Unreadable));
+        assert_eq!(load_usage(&path), Err(UsageError::NotRegular));
     }
 
     #[cfg(unix)]
@@ -492,38 +485,42 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&link).unwrap(), "new");
     }
 
-    #[test]
-    fn the_probe_creates_the_directory_and_leaves_nothing_behind() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("a/b/usage.json");
-
-        check_usage_writable(&path).unwrap();
-
-        let names: Vec<_> = std::fs::read_dir(dir.path().join("a/b"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        assert!(names.is_empty(), "{names:?}");
-        assert!(!path.exists());
-    }
-
     #[cfg(unix)]
     #[test]
-    fn the_probe_fails_when_the_state_directory_cannot_be_used() {
+    fn a_symlink_is_never_followed_and_never_treated_as_missing() {
         let dir = tempfile::tempdir().unwrap();
-        // A dangling symlink where the directory should be.
-        let link = dir.path().join("state");
-        std::os::unix::fs::symlink(dir.path().join("nowhere"), &link).unwrap();
+        let path = dir.path().join("usage.json");
 
-        assert_eq!(
-            check_usage_writable(&link.join("usage.json")),
-            Err(UsageError::WriteFailed)
-        );
+        // Dangling: `exists()` says false, but it is not "no file".
+        std::os::unix::fs::symlink(dir.path().join("nowhere"), &path).unwrap();
+        assert_eq!(load_usage(&path), Err(UsageError::NotRegular));
+        std::fs::remove_file(&path).unwrap();
+
+        // Pointing at a good usage file: still not followed.
+        let real = dir.path().join("real.json");
+        let state = UsageState::new(Month::parse("2026-11").unwrap());
+        save_usage(&real, &state).unwrap();
+        std::os::unix::fs::symlink(&real, &path).unwrap();
+        assert_eq!(load_usage(&path), Err(UsageError::NotRegular));
+    }
+
+    #[test]
+    fn saving_over_a_directory_fails_instead_of_pretending() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        std::fs::create_dir(&path).unwrap();
+        let state = UsageState::new(Month::parse("2026-11").unwrap());
+
+        assert_eq!(save_usage(&path, &state), Err(UsageError::WriteFailed));
     }
 
     #[test]
     fn errors_say_nothing_but_a_fixed_message() {
-        for error in [UsageError::Unreadable, UsageError::Corrupt] {
+        for error in [
+            UsageError::Unreadable,
+            UsageError::Corrupt,
+            UsageError::NotRegular,
+        ] {
             assert!(!error.to_string().is_empty());
             assert!(!format!("{error:?}").contains('/'));
         }

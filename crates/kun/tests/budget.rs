@@ -522,6 +522,78 @@ fn a_counter_that_cannot_be_saved_stops_every_run_before_it_sends() {
         .stdout("");
 }
 
+/// Three separate `kun` processes must each fail with exit 3 and print nothing.
+fn assert_every_run_fails_closed(sandbox: &Sandbox) {
+    for _ in 0..3 {
+        translate(sandbox)
+            .code(3)
+            .stdout("")
+            .stderr(predicate::str::contains("hello").not());
+    }
+}
+
+#[test]
+fn a_usage_file_that_is_a_directory_stops_every_run_before_it_sends() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(&limit(100));
+    std::fs::create_dir_all(sandbox.usage_path()).unwrap();
+
+    assert_every_run_fails_closed(&sandbox);
+    translate(&sandbox).stderr(predicate::str::contains("not a regular file"));
+    assert!(sandbox.usage_path().is_dir(), "nothing was replaced");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_as_the_usage_file_stops_every_run_before_it_sends() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(&limit(100));
+    let path = sandbox.usage_path();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let target = sandbox.work_dir().join("nowhere");
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+
+    assert_every_run_fails_closed(&sandbox);
+    translate(&sandbox).stderr(predicate::str::contains("not a regular file"));
+    // Never followed, never replaced.
+    assert!(!target.exists());
+    assert!(path.symlink_metadata().unwrap().file_type().is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_state_directory_stops_every_run_before_it_sends() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sandbox = Sandbox::new();
+    sandbox.write_user_config(&limit(100));
+    let dir = sandbox.usage_path().parent().unwrap().to_path_buf();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    // Root can write anywhere, so the setup does not hold: skip.
+    let root = std::fs::write(dir.join("probe"), "x").is_ok();
+
+    let outputs: Vec<_> = (0..3)
+        .map(|_| {
+            sandbox
+                .kun()
+                .args(["--provider", "fake", ":th", "hello"])
+                .output()
+                .unwrap()
+        })
+        .collect();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if root {
+        return;
+    }
+
+    for output in outputs {
+        assert_eq!(output.status.code(), Some(3));
+        assert!(output.stdout.is_empty(), "something was sent");
+    }
+    assert!(!sandbox.usage_path().exists());
+}
+
 #[test]
 fn repeated_runs_can_never_pass_the_budget() {
     let sandbox = Sandbox::new();
