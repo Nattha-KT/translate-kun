@@ -20,7 +20,7 @@
 `kun --dry-run --json ...` prints one object that describes the request instead of a translation. Nothing is sent.
 
 ```json
-{"schema_version":1,"dry_run":true,"provider":"google","host":"translation.googleapis.com","model":null,"source":"en","target":"th","pair":null,"second_call_possible":false,"would_send":true,"credentials":"env","secret_guard":{"decision":"redact","findings":[{"kind":"AWS access key","start":10,"end":30}]},"text":"my key is [REDACTED] ok","budget":null,"warnings":[]}
+{"schema_version":1,"dry_run":true,"provider":"google","host":"translation.googleapis.com","model":null,"source":"en","target":"th","pair":null,"second_call_possible":false,"would_send":true,"credentials":"env","secret_guard":{"decision":"redact","findings":[{"kind":"AWS access key","start":10,"end":30}]},"text":"my key is [REDACTED] ok","budget":null,"warnings":["possible secrets would be replaced with [REDACTED]"]}
 ```
 
 | Field | Type | Meaning |

@@ -1,6 +1,6 @@
 # translate-kun
 
-**`kun` translates text in your terminal and in your pipes, and it stops your API keys from leaving your machine.**
+**`kun` translates text in your terminal and in your pipes, and it checks that text for known API key and token patterns before it leaves your machine.**
 
 [![CI](https://github.com/machngai/translate-kun/actions/workflows/ci.yml/badge.svg)](https://github.com/machngai/translate-kun/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/translate-kun)](https://crates.io/crates/translate-kun)
@@ -30,16 +30,16 @@
 ## Why kun
 
 - **A translator for the terminal and for pipes.** Text comes from arguments, stdin or a file. The translation goes to stdout, and diagnostics go to stderr.
-- **The Secret Guard checks your text first.** API keys, tokens and private keys are blocked or redacted before anything leaves your machine.
+- **The Secret Guard checks your text first.** It looks for known patterns of API keys, tokens and private keys. By default it blocks what it finds, or asks you on a terminal. It is a safety net, not a guarantee.
 - **Protected Terms stay exact.** Product and function names come back exactly as you wrote them.
 - **Two Providers, and no silent fallback.** Choose Google Cloud Translation or Anthropic. If one fails, `kun` never sends your text to the other on its own.
-- **A Usage Budget for free tiers.** Set a monthly character limit and `kun` refuses before it passes it. It is opt-in and available from 0.2.0.
+- **A Usage Budget for free tiers.** Set a monthly character limit and `kun` refuses before it passes it. It is opt-in and ships in 0.2.0.
 - **Made for scripts.** `--json` output and stable exit codes (0 to 8).
 - **Verifiable releases.** Every release archive has a checksum and a build provenance attestation.
 
 ## Demo
 
-The translated words in this session come from the Provider, so your output may differ a little. Keys are obviously fake.
+This session assumes a Google key in the environment (`KUN_GOOGLE_API_KEY`), no Language Pair and no Usage Budget. The translated words come from the Provider, so your output may differ a little. The key in the examples is obviously fake.
 
 ```text
 $ kun :th "hello"
@@ -58,6 +58,7 @@ error: Secret Guard blocked the text; nothing was sent.
 Use --redact to mask them, or --allow-secrets to send them anyway.
 
 $ echo "my key is AKIAFAKEEXAMPLE12345 ok" | kun --dry-run --redact en:th
+warning: possible secrets would be replaced with [REDACTED]
 Dry run: nothing was sent.
 provider: google
 host: translation.googleapis.com
@@ -75,7 +76,7 @@ $ kun --json :th "hello"
 {"schema_version":1,"text":"สวัสดี","source":"en","target":"th","provider":"google","warnings":[]}
 ```
 
-The blocked text exits with code 6 and nothing is sent. A pipe is not a terminal, so the Secret Guard blocks instead of asking. A key cannot slip out through a script by accident.
+The blocked text exits with code 6 and nothing is sent. On a terminal (stdin and stderr are both terminals), the Secret Guard asks instead. When `kun` is not interactive, such as in a pipe or a script, it blocks by default. `--redact` masks the match, and `--allow-secrets` sends the text anyway. The `warning:` line goes to stderr before the report.
 
 ## Install
 
@@ -110,8 +111,9 @@ Every release archive has a SHA-256 checksum and a build provenance attestation,
 The examples use the macOS Apple silicon archive: replace the file name with the one you downloaded.
 
 ```sh
-# Provenance: needs the GitHub CLI (`gh`). --signer-workflow checks that the
-# file was built by this repository's release workflow.
+# Provenance: needs the GitHub CLI (`gh`), signed in with `gh auth login`.
+# --signer-workflow checks that the file was built by this repository's
+# release workflow.
 gh attestation verify translate-kun-aarch64-apple-darwin.tar.xz \
   -R machngai/translate-kun \
   --signer-workflow machngai/translate-kun/.github/workflows/release.yml
@@ -123,14 +125,16 @@ shasum -a 256 -c translate-kun-aarch64-apple-darwin.tar.xz.sha256   # macOS
 
 Look for `OK`. A line such as `WARNING: 1 line is improperly formatted` is harmless: the `.sha256` file ends with an extra blank line.
 
-Each release also has a software bill of materials (SBOM, CycloneDX), and the dependency list is embedded in the binary: `cargo install cargo-audit --locked`, then `cargo audit bin $(which kun)`. See [SECURITY.md](SECURITY.md#security-assurance).
+Each release also has a software bill of materials (SBOM, CycloneDX), and the dependency list is embedded in the release binaries: `cargo install cargo-audit --locked`, then `cargo audit bin "$(command -v kun)"`. See [SECURITY.md](SECURITY.md#security-assurance).
 
 ## Quick start (5 minutes)
 
 **1. Get an API key.** You need a key for one Provider. Your own key means your own account and your own bill.
 
-- **Google Cloud Translation** (the default). In the [Google Cloud console](https://console.cloud.google.com/apis/credentials), enable the Cloud Translation API for a project and create an API key.
+- **Google Cloud Translation** (the default). Follow Google's [setup guide](https://docs.cloud.google.com/translate/docs/setup): enable the Cloud Translation API for a project, and [enable billing](https://docs.cloud.google.com/translate/docs/setup#enable_billing) on that project, because the API does not work without it. Then create an API key in the [Credentials page](https://console.cloud.google.com/apis/credentials).
 - **Anthropic.** Create a key in the [Anthropic console](https://console.anthropic.com/settings/keys).
+
+Google is the default Provider. If you only have an Anthropic key, say so on every run with `--provider anthropic`, or set `provider = "anthropic"` in your User Config (see step 4).
 
 **2. Store the key.** `kun` asks for it with a hidden prompt and saves it in your OS keychain. Keys are never accepted as command-line flags, because flags end up in your shell history.
 
@@ -141,16 +145,18 @@ kun auth login google        # or: kun auth login anthropic
 **3. Translate something.** `:th` means "Target Language: Thai".
 
 ```sh
-kun :th "hello"
+kun :th "hello"                         # Google, the default
+kun --provider anthropic :th "hello"    # if you logged in to Anthropic only
 ```
 
-**4. Set a Language Pair.** A Language Pair lets `kun` pick the direction for you: English becomes Thai, and Thai becomes English. Put it in your User Config, `~/.config/kun/config.toml` (or `$XDG_CONFIG_HOME/kun/config.toml`):
+**4. Set a Language Pair.** A Language Pair lets `kun` pick the direction for you: English becomes Thai, and Thai becomes English. Put it in your User Config, `~/.config/kun/config.toml` (or `$XDG_CONFIG_HOME/kun/config.toml` when that is an absolute path):
 
 ```toml
 pair = ["en", "th"]
+# provider = "anthropic"  # uncomment if Anthropic is your Provider (Google is the default)
 ```
 
-This file does not exist until you create it, or until `kun budget set` creates it for you. Then you can leave out the language:
+This file does not exist until you create it, or until `kun budget set` creates it for you. Without a Language Pair, a `target` or a `:xx`, `kun` has no Target Language and exits with 2. With the pair above you can leave out the language:
 
 ```sh
 kun "hello"      # en -> th
@@ -169,12 +175,12 @@ Each part below is short. [docs/usage.md](docs/usage.md) lists every command and
 kun :th "hello"             # Target Language th, Source Language detected
 kun en:th "hello"           # Source Language en, Target Language th
 kun -s en -t th "hello"     # long form, good for scripts
-kun I love it               # translates "I love it"
+kun :th I love it           # translates "I love it" into Thai
 ```
 
-A language is recognised only as the first argument written `:xx` or `xx:yy`, or with `-s` / `-t`. **A bare word is always text**, so `kun I love it` never reads `it` as Italian. Codes look like `th` or `zh-TW`, and case does not matter.
+A language is recognised only as the first argument written `:xx` or `xx:yy`, or with `-s` / `-t`. **A bare word is always text**, so `kun :th I love it` never reads `it` as Italian. Codes look like `th` or `zh-TW`, and case does not matter. Without a Language Pair or a `target` in a config file, you must give the Target Language yourself, or `kun` exits with 2.
 
-`auth`, `budget`, `init` and `completions` are subcommands. If your text starts with one of them, put `--` before it:
+`auth`, `budget`, `completions`, `help` and `init` are subcommands. If your text starts with one of them, put `--` before it:
 
 ```sh
 kun :th -- auth is great
@@ -218,19 +224,19 @@ protected_terms = ["translate-kun", "Cargo.toml"]
 kun --provider anthropic :th "hello"
 ```
 
-You can also set `provider = "anthropic"` in a config file. There is **no automatic fallback**: if a Provider fails, `kun` exits with an error and suggests `--provider`. It never sends your text to a second company on its own.
+You can also set `provider = "anthropic"` in a config file. There is **no automatic fallback**: if a Provider fails, `kun` exits with an error, and some errors suggest trying `--provider`. It never sends your text to a second company on its own.
 
 ### Secret Guard
 
-The Secret Guard scans your text before it is sent. It looks for AWS keys, GitHub and GitLab tokens, Anthropic, OpenAI and Google API keys, Slack tokens, Stripe live keys, npm and Hugging Face tokens, private key blocks and JWTs, plus any `extra_patterns` you add.
+The Secret Guard scans your text before it is sent. It detects known patterns: AWS access key IDs (and AWS secret access keys, only when written as an assignment such as `aws_secret_access_key = …`), GitHub and GitLab tokens, Anthropic, OpenAI and Google API keys, Slack tokens, Stripe live keys, npm and Hugging Face tokens, private key blocks and JWTs, plus any `extra_patterns` you add.
 
 | Situation | What happens |
 |---|---|
 | Nothing found | The text is sent. |
-| Found, on a terminal | `kun` asks `Send anyway? [y/N]`. The default is no. |
-| Found, in a pipe or script | **Blocked** with exit 6. Nothing is sent. |
+| Found, on a terminal (stdin and stderr are both terminals) | `kun` asks `Send anyway? [y/N]`. The default is no. |
+| Found, not interactive (pipe, script, cron) | **Blocked** with exit 6. Nothing is sent. |
 | `--redact` | Each match becomes `[REDACTED]`, and the rest is sent. |
-| `--allow-secrets` | The text is sent as it is. |
+| `--allow-secrets` | The text is sent as it is, unless a redact is forced (`--redact` or `force_redact`), which wins. |
 | `force_redact = true` | Same as `--redact` every time. |
 
 ```toml
@@ -243,11 +249,11 @@ The error message shows the kind of secret and its byte range, never the secret 
 
 ### Dry run
 
-`--dry-run` shows exactly what would leave your machine, and sends nothing. It reports the Provider and host, the credential source (never the key), the Secret Guard decision, and the exact text that would be sent. The [Demo](#demo) shows one. It never builds a network client, and it never counts against your Usage Budget.
+`--dry-run` shows where your text would go and the exact text that would be sent, and it sends nothing. It reports the Provider and host (and the model for Anthropic), the languages, the credential source (never the key), the Secret Guard decision, and the text after redaction and Protected Terms placeholders. The [Demo](#demo) shows one. It does not list everything a request carries: Anthropic also receives your `style` hint. A dry run never builds a network client, and it never counts against your Usage Budget.
 
 ### Usage Budget
 
-> **New in 0.2.0.** If `kun --version` shows `0.1.x`, this feature is not in your build yet.
+> **Ships in 0.2.0.** `kun budget` is on the `main` branch, but the published 0.1.x releases do not have it. If `kun --version` shows 0.1.x, build from source to try it.
 
 A Usage Budget is a monthly limit on the characters `kun` sends to one Provider. It is off by default.
 
@@ -264,10 +270,11 @@ google: 448210 of 450000 characters used, 1790 left
 anthropic: no limit, 0 characters used
 ```
 
-- **What it counts.** The characters actually sent, after redaction and Protected Terms. `kun` reserves them before it sends, and gives them back if the call fails.
+- **What it counts.** The characters of the text actually sent in each Provider call, after redaction and Protected Terms. `kun` reserves them before each call and gives them back if the call fails. If giving them back fails, the count stays too high and `kun` warns you.
+- **A Language Pair can make two calls.** Each call reserves on its own. If the second call is refused, the first one stays counted.
 - **When it stops you.** If the next call would pass the limit, `kun` refuses before any network call and exits with 8. No flag overrides this. Raise the limit or wait for the 1st of the month (UTC).
-- **Where it lives.** The limit is in the `[budget]` table of the User Config. The counters are in `usage.json` in your state directory, and hold numbers only.
-- **It is approximate and local.** It counts only what this machine sends through `kun`. Pair it with a quota cap or budget alert in your Provider's console, because only the Provider enforces its own limits. Anthropic bills tokens, not characters, so a character budget is only a rough guide there.
+- **Where it lives.** The limit is in the `[budget]` table of the User Config. The counters are in `$XDG_STATE_HOME/kun/usage.json` (when that is an absolute path), otherwise `~/.local/state/kun/usage.json`. The file holds the month and one counter per Provider, and no text. If a budget is set and the file cannot be read or saved, `kun` sends nothing and exits with 3.
+- **It is approximate and local.** It counts only what this machine sends through `kun`, and two runs at the same moment can lose an increment, so the count can drift. Pair it with a quota cap or budget alert in your Provider's console, because only the Provider enforces its own limits. Anthropic bills tokens, not characters, so a character budget is only a rough guide there.
 
 ### Project Config
 
@@ -288,6 +295,7 @@ A Project Config is **untrusted**, because it may come from a repository you jus
 ### Shell completions
 
 ```sh
+mkdir -p ~/.local/share/bash-completion/completions
 kun completions bash > ~/.local/share/bash-completion/completions/kun
 ```
 
@@ -308,12 +316,12 @@ The fields are listed in [docs/json-output.md](docs/json-output.md). Exit codes:
 | 0 | Success |
 | 1 | Unexpected error, including a keychain failure |
 | 2 | Usage error: bad arguments, no text, or no Target Language |
-| 3 | Configuration error, or no OS keychain for `kun auth login` |
+| 3 | Configuration error (including a credential, endpoint or `[budget]` in a Project Config, or a `providers.<name>.endpoint` for the Provider in use), no OS keychain for `kun auth login`, or a usage file that cannot be read or saved while a Usage Budget is set |
 | 4 | Missing credentials |
 | 5 | Network or Provider error |
 | 6 | Blocked by the Secret Guard, or you answered "no" at its prompt |
 | 7 | Input longer than the size limit |
-| 8 | Rate limited, a Provider quota reached, or your Usage Budget reached. A script can wait and retry. |
+| 8 | The Provider rate limited you or its quota, credit or billing limit was reached (wait, or check your Provider account), **or** your local Usage Budget was reached (raise it, or wait for the reset). A script can wait and retry on a rate limit. |
 
 ## Configuration at a glance
 
@@ -321,7 +329,7 @@ The fields are listed in [docs/json-output.md](docs/json-output.md). Exit codes:
 
 | File | Location | Purpose |
 |---|---|---|
-| User Config | `~/.config/kun/config.toml` (or `$XDG_CONFIG_HOME/kun/config.toml`) | Personal settings. The only place for credentials and endpoints. |
+| User Config | `~/.config/kun/config.toml` (or `$XDG_CONFIG_HOME/kun/config.toml` when that is an absolute path) | Personal settings. The only place for credentials and endpoints. |
 | Project Config | `.kun.toml`, found by walking up from the current directory | Shared settings for a project. Untrusted. |
 
 Precedence: command-line flag > Project Config > User Config > built-in defaults. This User Config uses the main keys:
@@ -347,18 +355,18 @@ Every key, its default and where it is allowed: [docs/configuration.md](docs/con
 
 [![How one translation runs: kun CLI, Secret Guard, Protected Terms, Usage Budget, Provider adapter, then HTTPS to Google or Anthropic](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
-*Click the diagram to open it full size.*
+*Click the diagram to open it full size. It is animated with CSS only, and shows a still image if your system asks for reduced motion.*
 
-One translation, `kun :th "hello"`, goes through these steps:
+The diagram shows the path of a request that reaches a Provider. A run that sends nothing, such as `--dry-run` or a Secret Guard block, stops earlier. One translation, `kun :th "hello"`, goes through these steps:
 
-1. **CLI.** `kun` parses the arguments and the language, such as `:th`.
-2. **Config.** It loads the User Config and the Project Config, and merges them with your flags. The Project Config is untrusted. `kun` then reads the text from arguments or stdin and checks the size limit (exit 7).
-3. **Secret Guard.** It scans the text. It blocks it, redacts it or asks you (exit 6 if blocked).
-4. **Protected Terms.** Your terms become placeholders, so the Provider never sees them as words to translate.
-5. **Usage Budget.** If you set a limit, `kun` reserves the characters first. If they do not fit, it stops (exit 8). Nothing is reserved when no limit is set.
-6. **Provider adapter and Credentials.** `kun` builds the Provider you chose. It finds the key in the environment, the OS keychain or a `0600` User Config, in that order.
-7. **HTTPS.** The text and the key go to Google Cloud Translation or Anthropic, and nowhere else.
-8. **Output.** `kun` puts the Protected Terms back, then prints the translation on stdout, or one JSON object with `--json`.
+1. **CLI and config.** `kun` parses the arguments and the language, such as `:th`. It loads the User Config and the Project Config, and merges them with your flags. The Project Config is untrusted.
+2. **Input.** It reads the text from arguments or stdin, and checks the size limit (exit 7) and that there is text (exit 2).
+3. **Target Language.** It picks the Target Language from `:xx` or `-t`, a Language Pair, or `target`. If there is none, it exits with 2 before anything else happens.
+4. **Secret Guard.** It scans the text. It blocks it, redacts it or asks you (exit 6 if blocked). `--dry-run` stops here and prints what would be sent.
+5. **Provider adapter and Credentials.** `kun` builds the Provider you chose. A configured `providers.<name>.endpoint` for that Provider stops the run with exit 3. For each key, `kun` looks in the environment variable first, then the OS keychain, then the `[credentials]` table of the User Config (on Unix, only if that file is `0600` or stricter). No key means exit 4.
+6. **Protected Terms and Usage Budget.** Your terms become placeholders. Then, if you set a limit, the Usage Budget reserves the characters of this call. If they do not fit, `kun` stops (exit 8). With no limit set, nothing is reserved and the usage file is never touched.
+7. **HTTPS.** The text and the key go to Google Cloud Translation or Anthropic. Anthropic also gets your `style` hint, the languages and the model name. `kun` contacts no other server.
+8. **Restore and output.** `kun` puts the Protected Terms back, then prints the translation on stdout, or one JSON object with `--json`.
 
 **Workspace layout.** `kun` is two crates. `crates/kun-core` holds the logic and has no terminal I/O. `crates/kun` is the CLI adapter: it owns the terminal, the prompts and the exit codes. This keeps the logic easy to test and lets another adapter reuse it.
 
@@ -368,8 +376,8 @@ More: [docs/architecture.md](docs/architecture.md) for contributors, and the dec
 
 `kun` is a personal CLI translator, not a vault. Its security work is in proportion to that.
 
-- **What leaves your machine.** Your text (after the Secret Guard) and your API key go to the Provider you chose, over HTTPS, and nothing else goes anywhere. Once the text reaches the Provider, its privacy terms apply. Do not use `kun` for text that your organisation does not allow to be sent there. See [docs/privacy.md](docs/privacy.md), and check it yourself with `kun --dry-run`.
-- **Where keys are stored.** In the OS keychain (`kun auth login`), or in an environment variable for CI. On a machine with no keychain, a User Config `[credentials]` table works as a fallback, and only if the file is `0600`. Keys are never accepted as flags, and never printed.
+- **What leaves your machine.** The text to translate (after the Secret Guard and Protected Terms) and your API key go to the Provider you chose, over HTTPS. Anthropic also receives your `style` hint if you set one, the languages and the model name. A Provider also sees ordinary network metadata, such as your IP address. `kun` contacts no other server. Once the text reaches the Provider, its privacy terms apply. Do not use `kun` for text that your organisation does not allow to be sent there. See [docs/privacy.md](docs/privacy.md), and use `kun --dry-run` to see the destination and the text that would be sent.
+- **Where keys are stored.** In the OS keychain (`kun auth login`), or in an environment variable for CI. On a machine with no keychain, a User Config `[credentials]` table works as a fallback. On Unix it is used only if the file is `0600` or stricter. Keys are never accepted as flags, and never printed.
 - **No telemetry.** There is no analytics, no update check, no cache and no history.
 - **The audit.** The code had a security audit, and the findings are in [docs/security/audit-2026-11.md](docs/security/audit-2026-11.md). **The audit was done by an AI model (Claude Opus 5.5), not by an independent security firm.** Treat it as useful evidence, not a guarantee.
 - **Continuous checks.** CI runs cargo-deny, CodeQL and fuzzing, and the repository has an OpenSSF Scorecard (see the badge above).
@@ -378,9 +386,9 @@ More: [docs/architecture.md](docs/architecture.md) for contributors, and the dec
 ## Costs and limits
 
 - **Provider prices are the Provider's.** `kun` is free, and you pay the Provider you use. See [Google Cloud Translation pricing](https://cloud.google.com/translate/pricing) and [Anthropic pricing](https://www.anthropic.com/pricing). Free tiers exist, but they change, so check the current terms. Google Cloud Translation has offered 500,000 characters a month.
-- **`max_chars` limits one call.** The default is 10,000 characters per input. Lower it for a smaller ceiling. Longer text exits with 7 before anything is sent.
-- **The Usage Budget limits a month** (0.2.0 and later): `kun budget set google 450000`. It is local and approximate, so also set a quota cap or budget alert in the Provider's console.
-- **Exit 8 means "slow down or check your account".** It covers a rate limit, a Provider quota or billing limit, and your Usage Budget. `kun` does not retry on its own, because a retry could cost money twice.
+- **`max_chars` limits the size of one input.** The default is 10,000 characters. Longer text exits with 7 before anything is sent. It is not a limit on what a run sends: a Language Pair can send the text twice.
+- **The Usage Budget limits a month** (ships in 0.2.0): `kun budget set google 450000`. It is local and approximate, so also set a quota cap or budget alert in the Provider's console.
+- **Exit 8 has two causes.** Either the Provider rate limited you or its quota, credit or billing limit was reached (wait, or check your Provider account), or your local Usage Budget was reached (raise it, or wait for the reset). `kun` does not retry on its own, because a retry could cost money twice.
 
 [docs/usage.md](docs/usage.md#limits-quotas-and-costs) has the links to each Provider's quota and billing pages.
 
@@ -390,7 +398,7 @@ More: [docs/architecture.md](docs/architecture.md) for contributors, and the dec
 After `cargo install`, `kun` lives in `~/.cargo/bin`. Add that folder to your `PATH`, then open a new shell. `kun --version` should work.
 
 **Exit 4: no credentials**
-`kun` has no API key for the Provider. Run `kun auth login google` (or `anthropic`), or set `KUN_GOOGLE_API_KEY` or `ANTHROPIC_API_KEY`. `kun auth status` shows where each key comes from, and never prints a key.
+`kun` has no API key for the Provider in use. Google is the default, so if you only logged in to Anthropic, add `--provider anthropic` or set `provider = "anthropic"`. Otherwise run `kun auth login google` (or `anthropic`), or set `KUN_GOOGLE_API_KEY` or `ANTHROPIC_API_KEY`. `kun auth status` shows where each key comes from, and never prints a key.
 
 **The Secret Guard blocked my text (exit 6)**
 The message names the kind of secret and its byte range. If it is a real secret, remove it. If you accept the risk, use `--redact` to mask it or `--allow-secrets` to send it. Use `--dry-run` to see what would be sent.
@@ -402,17 +410,17 @@ A `.kun.toml` owned by a different user is skipped on purpose, like git's `safe.
 This is harmless. The `.sha256` file ends with an extra blank line. Look for `OK`.
 
 **No keychain on Linux**
-`kun auth login` exits with 3 where there is no Secret Service. Set `KUN_GOOGLE_API_KEY` or `ANTHROPIC_API_KEY`, or add the key to the `[credentials]` table of the User Config and run `chmod 600` on that file. `kun` ignores the table if others can read the file.
+`kun auth login` exits with 3 where there is no Secret Service. Set `KUN_GOOGLE_API_KEY` or `ANTHROPIC_API_KEY`, or add the key to the `[credentials]` table of the User Config and run `chmod 600` on that file. On Unix, `kun` ignores the table (and warns you) if group or others can read the file.
 
 **My text started with `auth` and failed**
-`auth`, `budget`, `init` and `completions` are subcommands. Put `--` before text that starts with one: `kun :th -- auth is great`.
+`auth`, `budget`, `completions`, `help` and `init` are subcommands. Put `--` before text that starts with one: `kun :th -- auth is great`.
 
 **Exit 8**
-A rate limit passes on its own: wait and try again. A Provider quota or billing limit needs a visit to your account page. If the message says "monthly usage budget", raise it with `kun budget set` or wait for the reset.
+If the message says "monthly usage budget", it is your local Usage Budget: raise it with `kun budget set` or wait for the reset. Otherwise the Provider is limiting you. A rate limit passes on its own, so wait and try again. A quota, credit or billing limit needs a visit to your Provider account page.
 
 ## Contributing
 
-Contributions are welcome: bug reports, docs fixes, tests and code. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Tests never use the network. Before you open a pull request, run:
+Contributions are welcome: bug reports, docs fixes, tests and code. Start with [CONTRIBUTING.md](CONTRIBUTING.md). The normal test suite uses no network, and the `live` tests that call real Providers are opt-in (`--features live`). Before you open a pull request, run:
 
 ```sh
 cargo fmt --all --check

@@ -6,7 +6,9 @@ This page is for contributors. It explains how the code is organised, what happe
 
 [![How one translation runs: kun CLI, Secret Guard, Protected Terms, Usage Budget, Provider adapter, then HTTPS to Google or Anthropic](assets/architecture.svg)](assets/architecture.svg)
 
-The diagram shows one translation from your terminal to a Provider. Every text passes the Secret Guard, Protected Terms and the optional Usage Budget before the Provider adapter sends it over HTTPS. Click the diagram to open it full size. Its source, with a file and line reference for each box, is [assets/architecture.archify.json](assets/architecture.archify.json). The sections below explain each part.
+The diagram shows the path of a request that reaches a Provider. Before the Provider adapter sends anything over HTTPS, the text has passed the Secret Guard and Protected Terms and, if a limit is set, the Usage Budget has reserved its characters. A run that sends nothing (`--dry-run`, a Secret Guard block) stops earlier. Click the diagram to open it full size. Its source, with a file and line reference for each box, is [assets/architecture.archify.json](assets/architecture.archify.json).
+
+The diagram is animated with CSS only, and shows a still image under reduced motion. `assets/animate_architecture.py` adds that animation to an Archify SVG export: `python3 docs/assets/animate_architecture.py in.svg out.svg`. The sections below explain each part.
 
 ## Crate layout
 
