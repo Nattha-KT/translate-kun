@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 1770 552" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14" style="--flow-cycle: 5.551s; width: 1770px; height: 552px; min-width: 0px;" width="1770" height="552" xmlns="http://www.w3.org/2000/svg"><style>
+<svg viewBox="0 0 1770 552" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14" style="--flow-cycle: 5.551s; width: 1770px; height: 552px; min-width: 0px;" width="1770" height="552" xmlns="http://www.w3.org/2000/svg" data-theme="dark"><style>
 /*
 JetBrains Mono variable WOFF2 subsets from Google Fonts service revision v24.
 These fixed bytes are shared by the viewer and its SVG/raster exports.
@@ -597,11 +597,7 @@ svg[data-node-ui] g[data-edge-from] &gt; rect.c-mask { rx: 7px; stroke: var(--la
 svg[data-node-ui][data-preset="blueprint"] :is([data-graph-role="structural-frame-label-mask"], g[data-edge-from] &gt; rect.c-mask, .phase-chip) { rx: 2px; }
 svg[data-node-ui][data-preset="editorial"] :is([data-graph-role="structural-frame-label-mask"], g[data-edge-from] &gt; rect.c-mask, .phase-chip) { rx: 3px; }
 :root, svg { --bg: #030711; --grid: #15233a; --canvas-dot: rgba(148, 163, 184, 0.16); --text: #f5fbff; --text-muted: #9eb0c7; --text-dim: #52667f; --text-faint: #7890ad; --panel: rgba(6, 14, 28, 0.78); --panel-border: #1d3350; --lane-fill: rgba(9, 22, 40, 0.5); --lane-stroke: #2c4564; --arrow: #7890ad; --arrow-emphasis: #2dd4bf; --mask: #07101e; --frontend-fill: rgba(6, 182, 212, 0.14); --frontend-stroke: #67e8f9; --backend-fill: rgba(16, 185, 129, 0.14); --backend-stroke: #5eead4; --database-fill: rgba(139, 92, 246, 0.16); --database-stroke: #c4b5fd; --cloud-fill: rgba(245, 158, 11, 0.13); --cloud-stroke: #fcd34d; --security-fill: rgba(244, 63, 94, 0.13); --security-stroke: #fda4af; --messagebus-fill: rgba(249, 115, 22, 0.13); --messagebus-stroke: #fdba74; --external-fill: rgba(71, 85, 105, 0.24); --external-stroke: #a5b4c7; --toolbar-bg: rgba(7, 16, 30, 0.86); --toolbar-border: #29415f; --toolbar-text: #e2e8f0; --toolbar-hover: rgba(15, 23, 42, 0.95); --toolbar-menu-bg: #07101e; --flow-cycle: ; --flow-halo-peak: ; --flow-glow-peak: ; --flow-tail-peak: ; --flow-head-peak: ; --flow-wake-peak: ; --flow-ripple-peak: ; --flow-peak: ; }
-@media (prefers-color-scheme: light) { :root, svg { --bg: #f4f9fc; --grid: #d4e5ee; --canvas-dot: #e2e7ec; --text: #102638; --text-muted: #587287; --text-dim: #8aa2b4; --text-faint: #668397; --panel: rgba(255, 255, 255, 0.82); --panel-border: #bfd5e2; --lane-fill: rgba(232, 243, 248, 0.62); --lane-stroke: #a9c5d5; --arrow: #7b97aa; --arrow-emphasis: #0d9488; --mask: #ffffff; --frontend-fill: rgba(6, 182, 212, 0.09); --frontend-stroke: #0789a1; --backend-fill: rgba(5, 150, 105, 0.09); --backend-stroke: #087f69; --database-fill: rgba(124, 58, 237, 0.09); --database-stroke: #7254c7; --cloud-fill: rgba(217, 119, 6, 0.08); --cloud-stroke: #b9670b; --security-fill: rgba(225, 29, 72, 0.08); --security-stroke: #c53a59; --messagebus-fill: rgba(234, 88, 12, 0.08); --messagebus-stroke: #c65f27; --external-fill: rgba(100, 116, 139, 0.1); --external-stroke: #607a8c; --toolbar-bg: rgba(255, 255, 255, 0.92); --toolbar-border: #cbd5e1; --toolbar-text: #334155; --toolbar-hover: #ffffff; --toolbar-menu-bg: #ffffff; --flow-cycle: ; --flow-halo-peak: ; --flow-glow-peak: ; --flow-tail-peak: ; --flow-head-peak: ; --flow-wake-peak: ; --flow-ripple-peak: ; --flow-peak: ; } }
-svg[data-theme="light"] { --bg: #f4f9fc; --grid: #d4e5ee; --canvas-dot: #e2e7ec; --text: #102638; --text-muted: #587287; --text-dim: #8aa2b4; --text-faint: #668397; --panel: rgba(255, 255, 255, 0.82); --panel-border: #bfd5e2; --lane-fill: rgba(232, 243, 248, 0.62); --lane-stroke: #a9c5d5; --arrow: #7b97aa; --arrow-emphasis: #0d9488; --mask: #ffffff; --frontend-fill: rgba(6, 182, 212, 0.09); --frontend-stroke: #0789a1; --backend-fill: rgba(5, 150, 105, 0.09); --backend-stroke: #087f69; --database-fill: rgba(124, 58, 237, 0.09); --database-stroke: #7254c7; --cloud-fill: rgba(217, 119, 6, 0.08); --cloud-stroke: #b9670b; --security-fill: rgba(225, 29, 72, 0.08); --security-stroke: #c53a59; --messagebus-fill: rgba(234, 88, 12, 0.08); --messagebus-stroke: #c65f27; --external-fill: rgba(100, 116, 139, 0.1); --external-stroke: #607a8c; --toolbar-bg: rgba(255, 255, 255, 0.92); --toolbar-border: #cbd5e1; --toolbar-text: #334155; --toolbar-hover: #ffffff; --toolbar-menu-bg: #ffffff; --flow-cycle: ; --flow-halo-peak: ; --flow-glow-peak: ; --flow-tail-peak: ; --flow-head-peak: ; --flow-wake-peak: ; --flow-ripple-peak: ; --flow-peak: ; }
-svg[data-theme="dark"] { --bg: #030711; --grid: #15233a; --canvas-dot: rgba(148, 163, 184, 0.16); --text: #f5fbff; --text-muted: #9eb0c7; --text-dim: #52667f; --text-faint: #7890ad; --panel: rgba(6, 14, 28, 0.78); --panel-border: #1d3350; --lane-fill: rgba(9, 22, 40, 0.5); --lane-stroke: #2c4564; --arrow: #7890ad; --arrow-emphasis: #2dd4bf; --mask: #07101e; --frontend-fill: rgba(6, 182, 212, 0.14); --frontend-stroke: #67e8f9; --backend-fill: rgba(16, 185, 129, 0.14); --backend-stroke: #5eead4; --database-fill: rgba(139, 92, 246, 0.16); --database-stroke: #c4b5fd; --cloud-fill: rgba(245, 158, 11, 0.13); --cloud-stroke: #fcd34d; --security-fill: rgba(244, 63, 94, 0.13); --security-stroke: #fda4af; --messagebus-fill: rgba(249, 115, 22, 0.13); --messagebus-stroke: #fdba74; --external-fill: rgba(71, 85, 105, 0.24); --external-stroke: #a5b4c7; --toolbar-bg: rgba(7, 16, 30, 0.86); --toolbar-border: #29415f; --toolbar-text: #e2e8f0; --toolbar-hover: rgba(15, 23, 42, 0.95); --toolbar-menu-bg: #07101e; --flow-cycle: ; --flow-halo-peak: ; --flow-glow-peak: ; --flow-tail-peak: ; --flow-head-peak: ; --flow-wake-peak: ; --flow-ripple-peak: ; --flow-peak: ; }
-rect.c-bg-rect { fill: var(--bg); }
-</style><rect x="0" y="0" width="1770" height="552" class="c-bg-rect"/>
+</style><rect x="0" y="0" width="1770" height="552" fill="#030711"/>
         <title id="archify-diagram-title">translate-kun: how one translation runs</title>
         <desc id="archify-diagram-description">An architecture diagram generated by Archify.</desc>
         <!-- Definitions -->
@@ -643,27 +639,49 @@ rect.c-bg-rect { fill: var(--bg); }
           svg[data-node-ui][data-preset="blueprint"] :is([data-graph-role="structural-frame-label-mask"], g[data-edge-from] &gt; rect.c-mask, .phase-chip) { rx: 2px; }
           svg[data-node-ui][data-preset="editorial"] :is([data-graph-role="structural-frame-label-mask"], g[data-edge-from] &gt; rect.c-mask, .phase-chip) { rx: 3px; }
         
-.kun-pulse {
-  stroke-width: 4 !important;
+.kun-tail, .kun-head {
   stroke-linecap: round;
-  stroke-dasharray: 22 130 !important;
-  stroke-dashoffset: 22;
-  opacity: 0;
-  marker-end: none !important;
   marker-start: none !important;
-  animation: kun-pulse 6.70s linear infinite;
+  marker-end: none !important;
+  opacity: 0;
+  filter: url(#kun-glow);
+  animation: kun-comet 7.30s linear infinite;
 }
-@keyframes kun-pulse {
-  0% { stroke-dashoffset: 22; opacity: 0; }
+.kun-tail {
+  stroke-width: 5 !important;
+  stroke-dasharray: 26 140 !important;
+  stroke-dashoffset: 26;
+}
+.kun-head {
+  stroke: #e6fffb;
+  stroke-width: 3 !important;
+  stroke-dasharray: 5 140 !important;
+  stroke-dashoffset: 5;
+}
+.kun-node-glow {
+  fill: none !important;
+  stroke-width: 2.5 !important;
+  opacity: 0;
+  filter: url(#kun-glow-strong);
+  animation: kun-node 7.30s ease-out infinite;
+}
+@keyframes kun-comet {
+  0% { stroke-dashoffset: 26; opacity: 0; }
   1% { opacity: 1; }
-  13.43% { stroke-dashoffset: -100; opacity: 1; }
-  13.93% { opacity: 0; }
+  12.33% { stroke-dashoffset: -100; opacity: 1; }
+  12.93% { opacity: 0; }
   100% { stroke-dashoffset: -100; opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .kun-pulse { animation: none; display: none; }
+@keyframes kun-node {
+  0% { opacity: 0; }
+  2.05% { opacity: 1; }
+  12.33% { opacity: 0; }
+  100% { opacity: 0; }
 }
-</style>
+@media (prefers-reduced-motion: reduce) {
+  .kun-tail, .kun-head, .kun-node-glow { animation: none; display: none; }
+}
+</style><defs><filter id="kun-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="kun-glow-strong" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
 
         <!-- Background Grid -->
         <rect width="100%" height="100%" fill="url(#grid)"/>
@@ -674,43 +692,43 @@ rect.c-bg-rect { fill: var(--bg); }
         <!-- Connection paths (before components for correct z-order) -->
         <g data-graph-role="automatic-crossover" style="--step:0">
           <path data-graph-role="automatic-crossover-underlay" d="M 170 252 L 290 252" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="you" data-edge-to="cli" data-edge-label="text + flags" data-edge-key="0" data-edge-id="you-to-cli" data-composition-points="170,252;290,252" data-composition-crossover="halo" data-composition-independent="true" d="M 170 252 L 290 252" class="a-emphasis" data-animate="edge" style="--step: 0;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-pulse" d="M 170 252 L 290 252" pathLength="100" fill="none" style="animation-delay:0.00s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="you" data-edge-to="cli" data-edge-label="text + flags" data-edge-key="0" data-edge-id="you-to-cli" data-composition-points="170,252;290,252" data-composition-crossover="halo" data-composition-independent="true" d="M 170 252 L 290 252" class="a-emphasis" data-animate="edge" style="--step: 0;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-tail" d="M 170 252 L 290 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:0.00s"/><path class="kun-head" d="M 170 252 L 290 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:0.00s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:1">
           <path data-graph-role="automatic-crossover-underlay" d="M 360 220 L 360 114" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="cli" data-edge-to="config" data-edge-label="load + merge" data-edge-key="1" data-edge-id="cli-reads-config" data-composition-points="360,220;360,114" data-composition-crossover="halo" data-composition-independent="true" d="M 360 220 L 360 114" class="a-default" data-animate="edge" style="--step: 1;" stroke-width="1.5" marker-end="url(#arrowhead)"/><path class="a-default kun-pulse" d="M 360 220 L 360 114" pathLength="100" fill="none" style="animation-delay:0.55s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="cli" data-edge-to="config" data-edge-label="load + merge" data-edge-key="1" data-edge-id="cli-reads-config" data-composition-points="360,220;360,114" data-composition-crossover="halo" data-composition-independent="true" d="M 360 220 L 360 114" class="a-default" data-animate="edge" style="--step: 1;" stroke-width="1.5" marker-end="url(#arrowhead)"/><path class="a-default kun-tail" d="M 360 220 L 360 114" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:0.55s"/><path class="kun-head" d="M 360 220 L 360 114" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:0.55s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:2">
           <path data-graph-role="automatic-crossover-underlay" d="M 430 252 L 530 252" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="cli" data-edge-to="guard" data-edge-label="input text" data-edge-key="2" data-edge-id="cli-to-guard" data-composition-points="430,252;530,252" data-composition-crossover="halo" data-composition-independent="true" d="M 430 252 L 530 252" class="a-emphasis" data-animate="edge" style="--step: 2;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-pulse" d="M 430 252 L 530 252" pathLength="100" fill="none" style="animation-delay:1.10s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="cli" data-edge-to="guard" data-edge-label="input text" data-edge-key="2" data-edge-id="cli-to-guard" data-composition-points="430,252;530,252" data-composition-crossover="halo" data-composition-independent="true" d="M 430 252 L 530 252" class="a-emphasis" data-animate="edge" style="--step: 2;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-tail" d="M 430 252 L 530 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:1.10s"/><path class="kun-head" d="M 430 252 L 530 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:1.10s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:3">
           <path data-graph-role="automatic-crossover-underlay" d="M 670 252 L 800 252" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="guard" data-edge-to="terms" data-edge-label="safe or redacted" data-edge-key="3" data-edge-id="guard-to-terms" data-composition-points="670,252;800,252" data-composition-crossover="halo" data-composition-independent="true" d="M 670 252 L 800 252" class="a-security" data-animate="edge" style="--step: 3;" stroke-width="1.5" marker-end="url(#arrowhead-security)"/><path class="a-security kun-pulse" d="M 670 252 L 800 252" pathLength="100" fill="none" style="animation-delay:1.65s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="guard" data-edge-to="terms" data-edge-label="safe or redacted" data-edge-key="3" data-edge-id="guard-to-terms" data-composition-points="670,252;800,252" data-composition-crossover="halo" data-composition-independent="true" d="M 670 252 L 800 252" class="a-security" data-animate="edge" style="--step: 3;" stroke-width="1.5" marker-end="url(#arrowhead-security)"/><path class="a-security kun-tail" d="M 670 252 L 800 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:1.65s"/><path class="kun-head" d="M 670 252 L 800 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:1.65s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:4">
           <path data-graph-role="automatic-crossover-underlay" d="M 950 252 L 1070 252" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="terms" data-edge-to="budget" data-edge-label="protected text" data-edge-key="4" data-edge-id="terms-to-budget" data-composition-points="950,252;1070,252" data-composition-crossover="halo" data-composition-independent="true" d="M 950 252 L 1070 252" class="a-emphasis" data-animate="edge" style="--step: 4;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-pulse" d="M 950 252 L 1070 252" pathLength="100" fill="none" style="animation-delay:2.20s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="terms" data-edge-to="budget" data-edge-label="protected text" data-edge-key="4" data-edge-id="terms-to-budget" data-composition-points="950,252;1070,252" data-composition-crossover="halo" data-composition-independent="true" d="M 950 252 L 1070 252" class="a-emphasis" data-animate="edge" style="--step: 4;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-tail" d="M 950 252 L 1070 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:2.20s"/><path class="kun-head" d="M 950 252 L 1070 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:2.20s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:5">
           <path data-graph-role="automatic-crossover-underlay" d="M 1140 220 L 1140 114" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="budget" data-edge-to="usage" data-edge-label="reserve / refund" data-edge-key="5" data-edge-id="budget-writes-usage" data-composition-points="1140,220;1140,114" data-composition-crossover="halo" data-composition-independent="true" d="M 1140 220 L 1140 114" class="a-default" data-animate="edge" style="--step: 5;" stroke-width="1.5" marker-end="url(#arrowhead)"/><path class="a-default kun-pulse" d="M 1140 220 L 1140 114" pathLength="100" fill="none" style="animation-delay:2.75s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="budget" data-edge-to="usage" data-edge-label="reserve / refund" data-edge-key="5" data-edge-id="budget-writes-usage" data-composition-points="1140,220;1140,114" data-composition-crossover="halo" data-composition-independent="true" d="M 1140 220 L 1140 114" class="a-default" data-animate="edge" style="--step: 5;" stroke-width="1.5" marker-end="url(#arrowhead)"/><path class="a-default kun-tail" d="M 1140 220 L 1140 114" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:2.75s"/><path class="kun-head" d="M 1140 220 L 1140 114" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:2.75s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:6">
           <path data-graph-role="automatic-crossover-underlay" d="M 1210 252 L 1320 252" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="budget" data-edge-to="provider" data-edge-label="allowed call" data-edge-key="6" data-edge-id="budget-to-provider" data-composition-points="1210,252;1320,252" data-composition-crossover="halo" data-composition-independent="true" d="M 1210 252 L 1320 252" class="a-emphasis" data-animate="edge" style="--step: 6;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-pulse" d="M 1210 252 L 1320 252" pathLength="100" fill="none" style="animation-delay:3.30s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="budget" data-edge-to="provider" data-edge-label="allowed call" data-edge-key="6" data-edge-id="budget-to-provider" data-composition-points="1210,252;1320,252" data-composition-crossover="halo" data-composition-independent="true" d="M 1210 252 L 1320 252" class="a-emphasis" data-animate="edge" style="--step: 6;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-tail" d="M 1210 252 L 1320 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:3.30s"/><path class="kun-head" d="M 1210 252 L 1320 252" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:3.30s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:7">
           <path data-graph-role="automatic-crossover-underlay" d="M 1395 284 L 1395 400" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="provider" data-edge-to="creds" data-edge-label="API key" data-edge-key="7" data-edge-id="provider-gets-key" data-composition-points="1395,284;1395,400" data-composition-crossover="halo" data-composition-independent="true" d="M 1395 284 L 1395 400" class="a-security" data-animate="edge" style="--step: 7;" stroke-width="1.5" marker-end="url(#arrowhead-security)"/><path class="a-security kun-pulse" d="M 1395 284 L 1395 400" pathLength="100" fill="none" style="animation-delay:3.85s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="provider" data-edge-to="creds" data-edge-label="API key" data-edge-key="7" data-edge-id="provider-gets-key" data-composition-points="1395,284;1395,400" data-composition-crossover="halo" data-composition-independent="true" d="M 1395 284 L 1395 400" class="a-security" data-animate="edge" style="--step: 7;" stroke-width="1.5" marker-end="url(#arrowhead-security)"/><path class="a-security kun-tail" d="M 1395 284 L 1395 400" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:3.85s"/><path class="kun-head" d="M 1395 284 L 1395 400" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:3.85s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:8">
           <path data-graph-role="automatic-crossover-underlay" d="M 1470 236 L 1588 236 Q 1596 236 1596 228 L 1596 194" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="provider" data-edge-to="google" data-edge-label="HTTPS" data-edge-key="8" data-edge-id="provider-to-google" data-composition-points="1470,236;1596,236;1596,194" data-composition-crossover="halo" data-composition-independent="true" d="M 1470 236 L 1588 236 Q 1596 236 1596 228 L 1596 194" class="a-emphasis" data-animate="edge" style="--step: 8;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-pulse" d="M 1470 236 L 1588 236 Q 1596 236 1596 228 L 1596 194" pathLength="100" fill="none" style="animation-delay:4.40s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="provider" data-edge-to="google" data-edge-label="HTTPS" data-edge-key="8" data-edge-id="provider-to-google" data-composition-points="1470,236;1596,236;1596,194" data-composition-crossover="halo" data-composition-independent="true" d="M 1470 236 L 1588 236 Q 1596 236 1596 228 L 1596 194" class="a-emphasis" data-animate="edge" style="--step: 8;" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/><path class="a-emphasis kun-tail" d="M 1470 236 L 1588 236 Q 1596 236 1596 228 L 1596 194" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:4.40s"/><path class="kun-head" d="M 1470 236 L 1588 236 Q 1596 236 1596 228 L 1596 194" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:4.40s"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:9">
           <path data-graph-role="automatic-crossover-underlay" d="M 1454 284 L 1454 318 Q 1454 326 1462 326 L 1580 326" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="provider" data-edge-to="anthropic" data-edge-label="HTTPS" data-edge-key="9" data-edge-id="provider-to-anthropic" data-composition-points="1454,284;1454,326;1580,326" data-composition-crossover="halo" data-composition-independent="true" d="M 1454 284 L 1454 318 Q 1454 326 1462 326 L 1580 326" class="a-dashed" data-animate="edge" style="--step: 9;" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/><path class="a-dashed kun-pulse" d="M 1454 284 L 1454 318 Q 1454 326 1462 326 L 1580 326" pathLength="100" fill="none" style="animation-delay:4.95s" pointer-events="none" aria-hidden="true"/>
+          <path data-edge-from="provider" data-edge-to="anthropic" data-edge-label="HTTPS" data-edge-key="9" data-edge-id="provider-to-anthropic" data-composition-points="1454,284;1454,326;1580,326" data-composition-crossover="halo" data-composition-independent="true" d="M 1454 284 L 1454 318 Q 1454 326 1462 326 L 1580 326" class="a-dashed" data-animate="edge" style="--step: 9;" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/><path class="a-dashed kun-tail" d="M 1454 284 L 1454 318 Q 1454 326 1462 326 L 1580 326" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:4.95s"/><path class="kun-head" d="M 1454 284 L 1454 318 Q 1454 326 1462 326 L 1580 326" pathLength="100" fill="none" pointer-events="none" aria-hidden="true" style="animation-delay:4.95s"/>
         </g>
 
         <!-- Components -->
@@ -728,7 +746,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-cli" data-node-id="cli" data-node-label="kun CLI" tabindex="0" role="button" aria-label="Focus kun CLI, parse, plan, exit code, kun process on your machine" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="parse, plan, exit code" data-node-tag="crates/kun" data-node-context="kun process on your machine">
           <title>kun CLI · parse, plan, exit code · kun process on your machine · crates/kun</title>
           <rect x="290" y="220" width="140" height="64" rx="8" class="c-mask"/>
-          <rect x="290" y="220" width="140" height="64" rx="8" class="c-frontend" data-animate="node" style="--step: 1; --flow-node-name: archify-relay-node-1;" stroke-width="1.5"/>
+          <rect x="290" y="220" width="140" height="64" rx="8" class="c-frontend" data-animate="node" style="--step: 1; --flow-node-name: archify-relay-node-1;" stroke-width="1.5"/><rect style="animation-delay:0.90s" aria-hidden="true" x="290" y="220" width="140" height="64" rx="8" class="c-frontend kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(296 226) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
@@ -743,7 +761,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-config" data-node-id="config" data-node-label="Config files" tabindex="0" role="button" aria-label="Focus Config files, User Config + .kun.toml, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="User Config + .kun.toml" data-node-tag="Project Config untrusted" data-node-context="Architecture component">
           <title>Config files · User Config + .kun.toml · Architecture component · Project Config untrusted</title>
           <rect x="290" y="50" width="140" height="64" rx="8" class="c-mask"/>
-          <rect x="290" y="50" width="140" height="64" rx="8" class="c-database" data-animate="node" style="--step: 2; --flow-node-name: archify-relay-node-2;" stroke-width="1.5"/>
+          <rect x="290" y="50" width="140" height="64" rx="8" class="c-database" data-animate="node" style="--step: 2; --flow-node-name: archify-relay-node-2;" stroke-width="1.5"/><rect style="animation-delay:1.45s" aria-hidden="true" x="290" y="50" width="140" height="64" rx="8" class="c-database kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(296 56) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
@@ -756,7 +774,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-guard" data-node-id="guard" data-node-label="Secret Guard" tabindex="0" role="button" aria-label="Focus Secret Guard, scan, redact or ask, kun process on your machine" aria-pressed="false" data-node-kind="security" data-node-sublabel="scan, redact or ask" data-node-context="kun process on your machine">
           <title>Secret Guard · scan, redact or ask · kun process on your machine</title>
           <rect x="530" y="220" width="140" height="64" rx="8" class="c-mask"/>
-          <rect x="530" y="220" width="140" height="64" rx="8" class="c-security" data-animate="node" style="--step: 3; --flow-node-name: archify-relay-node-3;" stroke-width="1.5"/>
+          <rect x="530" y="220" width="140" height="64" rx="8" class="c-security" data-animate="node" style="--step: 3; --flow-node-name: archify-relay-node-3;" stroke-width="1.5"/><rect style="animation-delay:2.00s" aria-hidden="true" x="530" y="220" width="140" height="64" rx="8" class="c-security kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(536 226) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
@@ -768,7 +786,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-terms" data-node-id="terms" data-node-label="Protected Terms" tabindex="0" role="button" aria-label="Focus Protected Terms, placeholders in and out, kun process on your machine" aria-pressed="false" data-node-kind="backend" data-node-sublabel="placeholders in and out" data-node-context="kun process on your machine">
           <title>Protected Terms · placeholders in and out · kun process on your machine</title>
           <rect x="800" y="220" width="150" height="64" rx="8" class="c-mask"/>
-          <rect x="800" y="220" width="150" height="64" rx="8" class="c-backend" data-animate="node" style="--step: 4; --flow-node-name: archify-relay-node-4;" stroke-width="1.5"/>
+          <rect x="800" y="220" width="150" height="64" rx="8" class="c-backend" data-animate="node" style="--step: 4; --flow-node-name: archify-relay-node-4;" stroke-width="1.5"/><rect style="animation-delay:2.55s" aria-hidden="true" x="800" y="220" width="150" height="64" rx="8" class="c-backend kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(806 226) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
@@ -779,7 +797,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-budget" data-node-id="budget" data-node-label="Usage Budget" tabindex="0" role="button" aria-label="Focus Usage Budget, reserve before send, kun process on your machine" aria-pressed="false" data-node-kind="backend" data-node-sublabel="reserve before send" data-node-tag="opt-in" data-node-context="kun process on your machine">
           <title>Usage Budget · reserve before send · kun process on your machine · opt-in</title>
           <rect x="1070" y="220" width="140" height="64" rx="8" class="c-mask"/>
-          <rect x="1070" y="220" width="140" height="64" rx="8" class="c-backend" data-animate="node" style="--step: 5; --flow-node-name: archify-relay-node-5;" stroke-width="1.5"/>
+          <rect x="1070" y="220" width="140" height="64" rx="8" class="c-backend" data-animate="node" style="--step: 5; --flow-node-name: archify-relay-node-5;" stroke-width="1.5"/><rect style="animation-delay:3.10s" aria-hidden="true" x="1070" y="220" width="140" height="64" rx="8" class="c-backend kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1076 226) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
@@ -791,7 +809,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-usage" data-node-id="usage" data-node-label="usage.json" tabindex="0" role="button" aria-label="Focus usage.json, monthly counters only, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="monthly counters only" data-node-context="Architecture component">
           <title>usage.json · monthly counters only · Architecture component</title>
           <rect x="1070" y="50" width="140" height="64" rx="8" class="c-mask"/>
-          <rect x="1070" y="50" width="140" height="64" rx="8" class="c-database" data-animate="node" style="--step: 6; --flow-node-name: archify-relay-node-6;" stroke-width="1.5"/>
+          <rect x="1070" y="50" width="140" height="64" rx="8" class="c-database" data-animate="node" style="--step: 6; --flow-node-name: archify-relay-node-6;" stroke-width="1.5"/><rect style="animation-delay:3.65s" aria-hidden="true" x="1070" y="50" width="140" height="64" rx="8" class="c-database kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(1076 56) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
@@ -803,7 +821,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-provider" data-node-id="provider" data-node-label="Provider adapter" tabindex="0" role="button" aria-label="Focus Provider adapter, one trait, two vendors, kun process on your machine" aria-pressed="false" data-node-kind="backend" data-node-sublabel="one trait, two vendors" data-node-context="kun process on your machine">
           <title>Provider adapter · one trait, two vendors · kun process on your machine</title>
           <rect x="1320" y="220" width="150" height="64" rx="8" class="c-mask"/>
-          <rect x="1320" y="220" width="150" height="64" rx="8" class="c-backend" data-animate="node" style="--step: 7; --flow-node-name: archify-relay-node-7;" stroke-width="1.5"/>
+          <rect x="1320" y="220" width="150" height="64" rx="8" class="c-backend" data-animate="node" style="--step: 7; --flow-node-name: archify-relay-node-7;" stroke-width="1.5"/><rect style="animation-delay:4.20s" aria-hidden="true" x="1320" y="220" width="150" height="64" rx="8" class="c-backend kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1326 226) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
@@ -814,7 +832,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-creds" data-node-id="creds" data-node-label="Credentials" tabindex="0" role="button" aria-label="Focus Credentials, env, Keychain, 0600 file, kun process on your machine" aria-pressed="false" data-node-kind="security" data-node-sublabel="env, Keychain, 0600 file" data-node-context="kun process on your machine">
           <title>Credentials · env, Keychain, 0600 file · kun process on your machine</title>
           <rect x="1320" y="400" width="150" height="64" rx="8" class="c-mask"/>
-          <rect x="1320" y="400" width="150" height="64" rx="8" class="c-security" data-animate="node" style="--step: 8; --flow-node-name: archify-relay-node-8;" stroke-width="1.5"/>
+          <rect x="1320" y="400" width="150" height="64" rx="8" class="c-security" data-animate="node" style="--step: 8; --flow-node-name: archify-relay-node-8;" stroke-width="1.5"/><rect style="animation-delay:4.75s" aria-hidden="true" x="1320" y="400" width="150" height="64" rx="8" class="c-security kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1326 406) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
@@ -826,7 +844,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-google" data-node-id="google" data-node-label="Google Cloud" tabindex="0" role="button" aria-label="Focus Google Cloud, Translation v2 (default), Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="Translation v2 (default)" data-node-context="Architecture component">
           <title>Google Cloud · Translation v2 (default) · Architecture component</title>
           <rect x="1580" y="130" width="150" height="64" rx="8" class="c-mask"/>
-          <rect x="1580" y="130" width="150" height="64" rx="8" class="c-cloud" data-animate="node" style="--step: 9; --flow-node-name: archify-relay-node-9;" stroke-width="1.5"/>
+          <rect x="1580" y="130" width="150" height="64" rx="8" class="c-cloud" data-animate="node" style="--step: 9; --flow-node-name: archify-relay-node-9;" stroke-width="1.5"/><rect style="animation-delay:5.30s" aria-hidden="true" x="1580" y="130" width="150" height="64" rx="8" class="c-cloud kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(1586 136) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
@@ -837,7 +855,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <g id="node-anthropic" data-node-id="anthropic" data-node-label="Anthropic" tabindex="0" role="button" aria-label="Focus Anthropic, Messages API, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="Messages API" data-node-context="Architecture component">
           <title>Anthropic · Messages API · Architecture component</title>
           <rect x="1580" y="310" width="150" height="64" rx="8" class="c-mask"/>
-          <rect x="1580" y="310" width="150" height="64" rx="8" class="c-cloud" data-animate="node" style="--step: 10; --flow-node-name: archify-relay-node-10;" stroke-width="1.5"/>
+          <rect x="1580" y="310" width="150" height="64" rx="8" class="c-cloud" data-animate="node" style="--step: 10; --flow-node-name: archify-relay-node-10;" stroke-width="1.5"/><rect style="animation-delay:5.85s" aria-hidden="true" x="1580" y="310" width="150" height="64" rx="8" class="c-cloud kun-node-glow" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(1586 316) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>

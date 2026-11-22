@@ -355,7 +355,7 @@ Every key, its default and where it is allowed: [docs/configuration.md](docs/con
 
 [![How one translation runs: kun CLI, Secret Guard, Protected Terms, Usage Budget, Provider adapter, then HTTPS to Google or Anthropic](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
-*Click the diagram to open it full size. It is animated with CSS only, and shows a still image if your system asks for reduced motion.*
+*Click the diagram to open it full size. It uses a dark theme and imitates the Archify viewer's Live mode with CSS only: a comet follows one translation edge by edge, and each box glows when the comet arrives. It shows a still image if your system asks for reduced motion.*
 
 The diagram shows the path of a request that reaches a Provider. A run that sends nothing, such as `--dry-run` or a Secret Guard block, stops earlier. One translation, `kun :th "hello"`, goes through these steps:
 
