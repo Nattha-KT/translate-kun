@@ -6,7 +6,7 @@ translation runs, on one shared cycle. No JavaScript: GitHub renders SVG through
 <img>, which runs CSS animations but never scripts. prefers-reduced-motion
 turns the animation off and leaves the static diagram.
 
-Usage: python3 animate_svg.py in.svg out.svg
+Usage: python3 docs/assets/animate_architecture.py in.svg out.svg
 """
 
 import re
