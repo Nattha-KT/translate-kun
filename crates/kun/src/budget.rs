@@ -106,9 +106,9 @@ enum Stopped {
     NotSaveable,
 }
 
-/// A call's reservation: the counters as they were before it.
+/// A call's reservation: how many characters it put in the usage file.
 struct Reservation {
-    before: UsageState,
+    needed: u64,
 }
 
 impl BudgetedProvider {
@@ -199,19 +199,26 @@ impl Active {
             });
         }
 
-        let mut after = before.clone();
+        let mut after = before;
         after.add(self.provider, self.month, needed);
         save_usage(path, &after).map_err(|_| Stopped::NotSaveable)?;
-        Ok(Reservation { before })
+        Ok(Reservation { needed })
     }
 
-    /// After a failed call: writes the counters as they were. If that fails
-    /// the count stays too high, which is the safe direction for a budget.
+    /// After a failed call: reloads the *current* file and takes this call's
+    /// characters off this Provider's counter. It never writes back an older
+    /// snapshot, which could wipe a reservation another process made in the
+    /// meantime. If the month changed, or the reload or the write fails, the
+    /// count stays too high, which is the safe direction for a budget.
     fn refund(&self, reservation: &Reservation) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        if save_usage(path, &reservation.before).is_err() {
+        let refunded = self.path.as_ref().is_some_and(|path| {
+            let Ok(Some(mut current)) = load_usage(path) else {
+                return false;
+            };
+            current.subtract(self.provider, self.month, reservation.needed)
+                && save_usage(path, &current).is_ok()
+        });
+        if !refunded {
             self.run.borrow_mut().refund_failed = true;
         }
     }
@@ -698,6 +705,68 @@ mod tests {
         assert_eq!(load_usage(&path).unwrap(), Some(before));
         assert!(provider.failure().is_none());
         assert!(!provider.refund_failed());
+    }
+
+    /// While its request is "in flight", another process (B) reserves 5 more
+    /// characters, or the month turns; then this call fails.
+    struct OtherProcessThenFails {
+        path: PathBuf,
+        other_month: bool,
+    }
+
+    impl Provider for OtherProcessThenFails {
+        fn name(&self) -> &'static str {
+            "fake"
+        }
+
+        fn translate(&self, _: &TranslationRequest) -> Result<Translation, ProviderError> {
+            let state = if self.other_month {
+                UsageState::new(Month::parse("2026-12").unwrap())
+            } else {
+                let mut state = load_usage(&self.path).unwrap().unwrap();
+                state.add(ProviderName::Google, month(), 5);
+                state
+            };
+            save_usage(&self.path, &state).unwrap();
+            Err(ProviderError::Authentication)
+        }
+    }
+
+    #[test]
+    fn a_refund_never_wipes_another_process_reservation() {
+        // Limit 10. A reserves 5. B reserves 5 and succeeds. A fails.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        let inner = Box::new(OtherProcessThenFails {
+            path: path.clone(),
+            other_month: false,
+        });
+        let provider = guarded(inner, Some(10), &path);
+
+        provider.translate(&request("hello")).unwrap_err();
+
+        // Only A's 5 are given back: B's 5 stay, so C cannot send 10 more.
+        let state = load_usage(&path).unwrap().unwrap();
+        assert_eq!(state.used(ProviderName::Google, month()), 5);
+        assert!(!provider.refund_failed());
+    }
+
+    #[test]
+    fn a_refund_after_the_month_changed_keeps_the_file_and_warns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.json");
+        let inner = Box::new(OtherProcessThenFails {
+            path: path.clone(),
+            other_month: true,
+        });
+        let provider = guarded(inner, Some(10), &path);
+
+        provider.translate(&request("hello")).unwrap_err();
+
+        let december = Month::parse("2026-12").unwrap();
+        let state = load_usage(&path).unwrap().unwrap();
+        assert_eq!(state.used(ProviderName::Google, december), 0);
+        assert!(provider.refund_failed());
     }
 
     /// Breaks the state directory, then fails: the refund cannot be written.

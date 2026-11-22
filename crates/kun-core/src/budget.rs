@@ -163,6 +163,21 @@ impl UsageState {
         };
         *counter = counter.saturating_add(chars);
     }
+
+    /// Takes `chars` off `provider` (never below 0), for a refund. Only when
+    /// the state belongs to `month`: otherwise nothing changes and `false` is
+    /// returned.
+    pub fn subtract(&mut self, provider: ProviderName, month: Month, chars: u64) -> bool {
+        if self.month != month {
+            return false;
+        }
+        let counter = match provider {
+            ProviderName::Google => &mut self.google,
+            ProviderName::Anthropic => &mut self.anthropic,
+        };
+        *counter = counter.saturating_sub(chars);
+        true
+    }
 }
 
 /// Why the usage state file could not be used. Fixed categories only: the
@@ -524,6 +539,28 @@ mod tests {
             assert!(!error.to_string().is_empty());
             assert!(!format!("{error:?}").contains('/'));
         }
+    }
+
+    #[test]
+    fn subtracting_touches_one_provider_in_the_same_month_only() {
+        let nov = Month::parse("2026-11").unwrap();
+        let dec = Month::parse("2026-12").unwrap();
+        let mut state = UsageState::new(nov);
+        state.add(ProviderName::Google, nov, 10);
+        state.add(ProviderName::Anthropic, nov, 4);
+
+        assert!(state.subtract(ProviderName::Google, nov, 3));
+        assert_eq!(state.used(ProviderName::Google, nov), 7);
+        assert_eq!(state.used(ProviderName::Anthropic, nov), 4);
+
+        // Never below 0.
+        assert!(state.subtract(ProviderName::Google, nov, 100));
+        assert_eq!(state.used(ProviderName::Google, nov), 0);
+
+        // Another month: nothing changes, and the caller is told.
+        state.add(ProviderName::Google, nov, 5);
+        assert!(!state.subtract(ProviderName::Google, dec, 5));
+        assert_eq!(state.used(ProviderName::Google, nov), 5);
     }
 
     #[test]
