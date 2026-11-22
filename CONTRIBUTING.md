@@ -19,7 +19,7 @@ cd translate-kun
 
 ## Build, test and lint
 
-These are the checks every change must pass. CI runs the same commands on Linux, macOS and Windows.
+These are the checks every change must pass. CI runs the same commands: fmt, clippy and the other checks on Ubuntu, and the tests on Ubuntu, macOS and Windows.
 
 ```sh
 cargo build --workspace

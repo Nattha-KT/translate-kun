@@ -113,13 +113,29 @@ proptest! {
     }
 
     /// Protect then restore gives back the original text, for terms that
-    /// really occur in the text (a small alphabet makes that likely).
+    /// really occur in it: the text is built by putting every term between
+    /// filler pieces. So `protect` must replace them (an identity `protect`
+    /// fails the checks before the round trip).
     #[test]
     fn protect_then_restore_round_trips_with_matching_terms(
-        text in "[abc กข-]{0,40}",
-        terms in prop::collection::vec("[abcก-]{1,3}", 0..4),
+        terms in prop::collection::vec("[abcก-]{1,3}", 1..4),
+        fillers in prop::collection::vec("[abc กข-]{0,6}", 4..=4),
     ) {
+        let mut text = fillers[0].clone();
+        for (term, filler) in terms.iter().zip(fillers.iter().skip(1)) {
+            text.push_str(term);
+            text.push_str(filler);
+        }
+
         let (protected, placeholders) = protect(&text, &terms);
+
+        // The terms are gone and a placeholder took their place. (A term
+        // never contains the capital letters of a placeholder.)
+        for term in &terms {
+            prop_assert!(!protected.contains(term.as_str()), "term left in {protected:?}");
+        }
+        prop_assert!(protected.contains("KUNPT0X"), "no placeholder in {protected:?}");
+
         let (restored, all_found) = restore(&protected, &placeholders);
 
         prop_assert_eq!(restored, text);

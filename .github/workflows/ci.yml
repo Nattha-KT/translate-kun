@@ -101,6 +101,9 @@ jobs:
           tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Coverage summary
+        # `shell: bash` runs with `set -eo pipefail`, so a failing
+        # `cargo llvm-cov` fails the step even though its output goes to `tee`.
+        shell: bash
         run: cargo llvm-cov --workspace --features translate-kun/fake-provider --summary-only | tee coverage-summary.txt
       - name: Add the summary to the job page
         run: |
