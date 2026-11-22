@@ -12,6 +12,7 @@ use tempfile::TempDir;
 pub struct Sandbox {
     home: TempDir,
     xdg: TempDir,
+    xdg_state: TempDir,
     work: TempDir,
 }
 
@@ -20,8 +21,21 @@ impl Sandbox {
         Sandbox {
             home: tempfile::tempdir().unwrap(),
             xdg: tempfile::tempdir().unwrap(),
+            xdg_state: tempfile::tempdir().unwrap(),
             work: tempfile::tempdir().unwrap(),
         }
+    }
+
+    /// Where the usage state file lives in this sandbox.
+    pub fn usage_path(&self) -> PathBuf {
+        self.xdg_state.path().join("kun/usage.json")
+    }
+
+    /// Writes the usage state file (and its directory).
+    pub fn write_usage(&self, text: &str) {
+        let path = self.usage_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
     }
 
     pub fn work_dir(&self) -> &Path {
@@ -57,6 +71,7 @@ impl Sandbox {
         command
             .env("HOME", self.home.path())
             .env("XDG_CONFIG_HOME", self.xdg.path())
+            .env("XDG_STATE_HOME", self.xdg_state.path())
             .env_remove("KUN_GOOGLE_API_KEY")
             .env_remove("ANTHROPIC_API_KEY")
             .current_dir(self.work.path());
@@ -70,6 +85,7 @@ impl Sandbox {
         command
             .env("HOME", self.home.path())
             .env("XDG_CONFIG_HOME", self.xdg.path())
+            .env("XDG_STATE_HOME", self.xdg_state.path())
             .env_remove("KUN_GOOGLE_API_KEY")
             .env_remove("ANTHROPIC_API_KEY")
             .current_dir(self.work.path());

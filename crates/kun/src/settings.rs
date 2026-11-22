@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use kun_core::config::{
-    EffectiveConfig, FileConfig, FileCredentials, Overrides, find_project_config,
+    BudgetSettings, EffectiveConfig, FileConfig, FileCredentials, Overrides, find_project_config,
     load_project_config_if_owned, load_user_config, merge, user_config_path,
 };
 
@@ -91,6 +91,18 @@ pub fn load_user_credentials(
         ignored_insecure,
         warnings,
     })
+}
+
+/// The `[budget]` table of the User Config (empty when there is none). Only
+/// the User Config is read, never the Project Config: the Usage Budget cannot
+/// come from there, and a broken `.kun.toml` must not stop `kun budget`.
+pub fn load_user_budget(
+    home: Option<&Path>,
+    xdg_config_home: Option<&Path>,
+) -> Result<BudgetSettings, CliError> {
+    let mut warnings = Vec::new();
+    let user = load_user(home, xdg_config_home, &mut warnings)?;
+    Ok(user.map(|file| file.budget).unwrap_or_default())
 }
 
 /// The User Config, or `None` when there is no file. A file that exists but
@@ -201,6 +213,39 @@ mod tests {
         };
         let loaded = load_settings(work.path(), Some(home.path()), None, &overrides).unwrap();
         assert_eq!(loaded.config.max_chars, 100);
+    }
+
+    #[test]
+    fn the_budget_comes_from_the_user_config_and_a_project_config_cannot_set_it() {
+        let home = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        write(
+            &home.path().join(".config/kun/config.toml"),
+            "[budget]\ngoogle_chars_per_month = 450000",
+        );
+
+        let loaded =
+            load_settings(work.path(), Some(home.path()), None, &Overrides::default()).unwrap();
+        assert_eq!(
+            loaded
+                .config
+                .budget
+                .limit(kun_core::config::ProviderName::Google),
+            Some(450_000)
+        );
+        let only_budget = load_user_budget(Some(home.path()), None).unwrap();
+        assert_eq!(only_budget, loaded.config.budget);
+
+        write(
+            &work.path().join(".kun.toml"),
+            "[budget]\ngoogle_chars_per_month = 999999999",
+        );
+        let error = load_settings(work.path(), Some(home.path()), None, &Overrides::default())
+            .err()
+            .unwrap();
+        assert_eq!(error.exit_code(), 3);
+        // `kun budget status` ignores the Project Config altogether.
+        assert!(load_user_budget(Some(home.path()), None).is_ok());
     }
 
     #[test]

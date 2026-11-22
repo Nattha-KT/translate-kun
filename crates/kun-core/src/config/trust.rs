@@ -20,6 +20,8 @@ fn is_forbidden_key(name: &str) -> bool {
     }
     name == "endpoint"
         || name == "allow_secrets"
+        // The Usage Budget is a spending guard: only the User Config sets it.
+        || name == "budget"
         || CREDENTIAL_WORDS.iter().any(|word| name.contains(word))
 }
 
@@ -205,6 +207,18 @@ model = "claude-haiku-5-5"
     fn absent_protected_terms_stay_unset_in_the_file_layer() {
         let config = parse_project_config(&path(), "target = \"th\"").unwrap();
         assert_eq!(config.protected_terms, None);
+    }
+
+    #[test]
+    fn project_config_rejects_a_budget_table() {
+        // An untrusted repository must not change or remove the spending guard.
+        for text in [
+            "[budget]\ngoogle_chars_per_month = 450000",
+            "[budget]",
+            "budget = {}",
+        ] {
+            assert_eq!(forbidden_key(text), "budget", "{text}");
+        }
     }
 
     #[test]

@@ -114,6 +114,29 @@ impl fmt::Debug for SecretGuardSettings {
     }
 }
 
+/// The `[budget]` table: the Usage Budget, in characters per calendar month
+/// and per Provider. A missing key means no limit. Allowed in the User Config
+/// only (ADR 0003), because an untrusted repository must not be able to
+/// change or remove the spending guard.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BudgetSettings {
+    /// The monthly limit for Google Cloud Translation.
+    pub google_chars_per_month: Option<u64>,
+    /// The monthly limit for Anthropic Claude.
+    pub anthropic_chars_per_month: Option<u64>,
+}
+
+impl BudgetSettings {
+    /// The monthly limit for `provider`, or `None` when there is no limit.
+    pub fn limit(&self, provider: ProviderName) -> Option<u64> {
+        match provider {
+            ProviderName::Google => self.google_chars_per_month,
+            ProviderName::Anthropic => self.anthropic_chars_per_month,
+        }
+    }
+}
+
 /// The `[credentials]` table. Allowed in the User Config only (ADR 0003).
 ///
 /// The values stay private: read one with [`FileCredentials::api_key`], which
@@ -175,6 +198,8 @@ pub struct FileConfig {
     pub providers: HashMap<ProviderName, ProviderSettings>,
     /// User Config only. Always empty in a Project Config.
     pub credentials: FileCredentials,
+    /// User Config only. Always empty in a Project Config.
+    pub budget: BudgetSettings,
     /// True when the User Config had a `[credentials]` value but the file is
     /// readable by group or others, so the values were dropped (§6). The CLI
     /// uses this to warn.
@@ -194,6 +219,7 @@ impl fmt::Debug for FileConfig {
             .field("secret_guard", &self.secret_guard)
             .field("providers", &self.providers)
             .field("credentials", &Redacted)
+            .field("budget", &self.budget)
             .field(
                 "credentials_ignored_insecure",
                 &self.credentials_ignored_insecure,
@@ -248,6 +274,8 @@ pub struct EffectiveConfig {
     pub secret_guard: SecretGuardSettings,
     /// The merged per-Provider settings.
     pub providers: HashMap<ProviderName, ProviderSettings>,
+    /// The Usage Budget, from the User Config only.
+    pub budget: BudgetSettings,
 }
 
 impl fmt::Debug for EffectiveConfig {
@@ -262,6 +290,7 @@ impl fmt::Debug for EffectiveConfig {
             .field("timeout_secs", &self.timeout_secs)
             .field("secret_guard", &self.secret_guard)
             .field("providers", &self.providers)
+            .field("budget", &self.budget)
             .finish()
     }
 }

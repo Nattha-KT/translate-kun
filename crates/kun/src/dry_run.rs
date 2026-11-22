@@ -14,7 +14,9 @@ use kun_core::translate::TargetPlan;
 use crate::auth::key_source;
 use crate::error::CliError;
 use crate::guard::{DryDecision, DryGuarded};
-use crate::json_output::{DryRunFinding, DryRunOutput, DryRunSecretGuard, SCHEMA_VERSION};
+use crate::json_output::{
+    DryRunBudget, DryRunFinding, DryRunOutput, DryRunSecretGuard, SCHEMA_VERSION,
+};
 use crate::providers::{
     CredentialSources, anthropic_model, provider_host, provider_label, reject_endpoint,
 };
@@ -44,7 +46,22 @@ pub struct DryRunReport {
     pub findings: Vec<Finding>,
     /// After redaction and Protected Terms placeholders.
     pub text: String,
+    /// `None` when no Usage Budget is set for the Provider. The caller fills
+    /// it in after `build_report`.
+    pub budget: Option<DryRunBudget>,
     pub warnings: Vec<String>,
+}
+
+impl DryRunReport {
+    /// How many characters a real run would send in its first call: the text
+    /// after redaction and Protected Terms placeholders (0 when nothing is sent).
+    pub fn chars_to_send(&self) -> u64 {
+        if self.would_send {
+            u64::try_from(self.text.chars().count()).unwrap_or(u64::MAX)
+        } else {
+            0
+        }
+    }
 }
 
 /// Builds the report. Fails like a real run where a real run would fail before
@@ -101,6 +118,7 @@ pub fn build_report(
         decision: guarded.decision,
         findings: guarded.findings,
         text,
+        budget: None,
         warnings,
     })
 }
@@ -139,6 +157,7 @@ impl DryRunReport {
         }
         out.push_str(&format!("credentials: {}\n", self.credentials));
         out.push_str(&self.render_guard());
+        out.push_str(&self.render_budget());
 
         if !self.would_send {
             out.push_str(
@@ -155,6 +174,31 @@ impl DryRunReport {
         }
         out.push_str(END_MARKER);
         out.push('\n');
+        out
+    }
+
+    /// The Usage Budget lines. Empty when no budget is set.
+    fn render_budget(&self) -> String {
+        let Some(budget) = &self.budget else {
+            return String::new();
+        };
+        let mut out = format!(
+            "budget: {} of {} used this month; this run needs {}\n",
+            budget.used, budget.limit, budget.needs
+        );
+        if !self.would_send {
+            out.push_str("budget: no Provider call, so nothing would be counted\n");
+        } else if budget.would_refuse {
+            out.push_str("budget: a real run would be refused (exit code 8)\n");
+        } else {
+            out.push_str("budget: a real run would be sent\n");
+        }
+        if self.second_call_possible && self.would_send {
+            out.push_str(&format!(
+                "budget: a second call may need {} more\n",
+                budget.needs
+            ));
+        }
         out
     }
 
@@ -211,6 +255,7 @@ impl DryRunReport {
                 findings,
             },
             text: self.would_send.then(|| self.text.clone()),
+            budget: self.budget,
             warnings: self.warnings.clone(),
         }
     }
@@ -296,6 +341,56 @@ mod tests {
         assert!(human.ends_with(&format!("{BEGIN_MARKER}\nhello\n{END_MARKER}\n")));
         let human = report_for(clean("hello\n"), None).render_human();
         assert!(human.ends_with(&format!("{BEGIN_MARKER}\nhello\n{END_MARKER}\n")));
+    }
+
+    #[test]
+    fn the_budget_lines_name_the_numbers_and_the_outcome() {
+        let mut report = report_for(clean("hello"), None);
+        assert!(!report.render_human().contains("budget:"));
+
+        report.budget = Some(DryRunBudget {
+            limit: 100,
+            used: 40,
+            needs: 5,
+            would_refuse: false,
+        });
+        let human = report.render_human();
+        assert!(human.contains("budget: 40 of 100 used this month; this run needs 5\n"));
+        assert!(human.contains("budget: a real run would be sent\n"));
+        assert_eq!(report.chars_to_send(), 5);
+
+        report.budget = Some(DryRunBudget {
+            limit: 42,
+            used: 40,
+            needs: 5,
+            would_refuse: true,
+        });
+        assert!(
+            report
+                .render_human()
+                .contains("a real run would be refused")
+        );
+    }
+
+    #[test]
+    fn a_dry_run_without_a_request_says_no_provider_call_and_never_refuses() {
+        let mut report = report_for(clean("hello"), Some(lang("th")));
+        report.budget = Some(DryRunBudget {
+            limit: 5,
+            used: 10,
+            needs: 0,
+            would_refuse: false,
+        });
+        let human = report.render_human();
+        assert!(human.contains("budget: 10 of 5 used this month; this run needs 0\n"));
+        assert!(human.contains("no Provider call"));
+        assert!(!human.contains("refused"));
+    }
+
+    #[test]
+    fn nothing_to_send_needs_no_budget() {
+        let report = report_for(clean("hello"), Some(lang("th")));
+        assert_eq!(report.chars_to_send(), 0);
     }
 
     #[test]

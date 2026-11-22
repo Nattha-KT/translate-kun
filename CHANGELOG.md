@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Usage Budget** (opt-in): a local monthly limit, in characters, per Provider. Set it with `kun budget set <google|anthropic> <chars>` or in the User Config (`[budget]`, `google_chars_per_month`, `anthropic_chars_per_month`). Once the month's limit would be passed, `kun` refuses before any network call and exits with 8; there is no override flag. With no limit set, nothing changes and no state file is read or written.
+- `kun budget` / `kun budget status` (with `--json`) shows the limit, the characters used, what is left and the reset date. `kun budget unset <provider>` removes a limit. `kun budget set` keeps the rest of the User Config and its comments. `budget` is now a reserved word like `auth`, `init` and `completions`: text that starts with it needs `--`.
+- The counters live in `$XDG_STATE_HOME/kun/usage.json` (default `~/.local/state/kun/usage.json`): counters only, mode `0600`, written atomically. The count is approximate: it covers only this machine, and two simultaneous runs can lose an increment.
+- `--dry-run` shows a `budget:` line (and a `budget` object with `--json`) when a limit is set. A dry run never counts.
+- `--json` can now be written after a subcommand (`kun budget status --json`).
+- A `[budget]` table in a Project Config is a configuration error (exit 3): it is User Config only (ADR 0003).
+
 ## [0.1.0] - 2026-11-22
 
 First public release.

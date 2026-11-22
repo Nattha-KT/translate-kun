@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use kun_core::budget::Month;
 use kun_core::config::ConfigError;
 use kun_core::credentials::CredentialError;
 use kun_core::provider::ProviderError;
@@ -46,7 +47,7 @@ pub enum ConfigProblem {
 }
 
 /// The only key names that may appear in an error message.
-const KNOWN_FIELDS: [&str; 12] = [
+const KNOWN_FIELDS: [&str; 15] = [
     "target",
     "pair",
     "provider",
@@ -59,6 +60,9 @@ const KNOWN_FIELDS: [&str; 12] = [
     "providers.google.endpoint",
     "providers.anthropic.endpoint",
     "secret_guard.extra_patterns",
+    "budget",
+    "budget.google_chars_per_month",
+    "budget.anthropic_chars_per_month",
 ];
 
 /// `key` as a `'static` name if it is one of the schema's own keys.
@@ -98,6 +102,27 @@ pub enum CliError {
     EndpointNotSupported { provider: &'static str },
     /// The OS keychain exists but a read, write or delete failed.
     KeychainFailed,
+    /// The monthly Usage Budget would be passed, so nothing was sent. Only
+    /// numbers and a built-in Provider name: never the text.
+    BudgetReached {
+        provider: &'static str,
+        used: u64,
+        limit: u64,
+        needed: u64,
+        /// The month the counter belongs to; it resets on the 1st of the next.
+        month: Month,
+    },
+    /// A Usage Budget is set but the usage file cannot be read or is not
+    /// valid, so the counter is unknown. Fails closed.
+    UsageFileUnusable,
+    /// A Usage Budget is set but the new total could not be written before a
+    /// request (a read-only or missing directory, a file that cannot be
+    /// replaced). Nothing is sent, so the budget can never be passed by runs
+    /// that start from an old count.
+    UsageFileNotSaveable,
+    /// A Usage Budget is set but the usage file is a symlink, a directory or
+    /// another file that is not a regular file. Never followed.
+    UsageFileNotRegular,
     /// Something unexpected, such as a failed write to stdout.
     Unexpected(&'static str),
 }
@@ -128,7 +153,11 @@ impl CliError {
             CliError::Config { .. }
             | CliError::ExtraPattern(_)
             | CliError::KeychainUnavailable { .. }
-            | CliError::EndpointNotSupported { .. } => 3,
+            | CliError::EndpointNotSupported { .. }
+            | CliError::UsageFileUnusable
+            | CliError::UsageFileNotSaveable
+            | CliError::UsageFileNotRegular => 3,
+            CliError::BudgetReached { .. } => 8,
             CliError::Provider(ProviderError::MissingCredentials)
             | CliError::NoGoogleKey
             | CliError::NoAnthropicKey => 4,
@@ -184,7 +213,8 @@ impl fmt::Display for CliError {
                 ConfigProblem::Forbidden { field: Some(field) } => write!(
                     f,
                     "the {file} sets `{field}`, which is not allowed there \
-                     (credentials, endpoints and allow_secrets belong in the User Config)"
+                     (credentials, endpoints, allow_secrets and the usage budget \
+                     belong in the User Config)"
                 ),
                 ConfigProblem::Forbidden { field: None } => write!(
                     f,
@@ -246,6 +276,34 @@ impl fmt::Display for CliError {
             CliError::KeychainFailed => {
                 f.write_str("the OS keychain could not read or write the credential")
             }
+            CliError::BudgetReached {
+                provider,
+                used,
+                limit,
+                needed,
+                month,
+            } => write!(
+                f,
+                "monthly usage budget for {provider} reached: {used} of {limit} characters used; \
+                 this text needs {needed}. It resets on {} (UTC). \
+                 Raise it with: kun budget set {provider} <chars>",
+                month.first_of_next()
+            ),
+            CliError::UsageFileUnusable => f.write_str(
+                "the usage budget is set but the usage file cannot be read or is not valid, \
+                 so nothing was sent. Delete it to start counting again from 0: \
+                 $XDG_STATE_HOME/kun/usage.json (default ~/.local/state/kun/usage.json)",
+            ),
+            CliError::UsageFileNotSaveable => f.write_str(
+                "the usage budget is set but the usage counter cannot be saved \
+                 (check that $XDG_STATE_HOME/kun, default ~/.local/state/kun, is writable), \
+                 so this request was not sent",
+            ),
+            CliError::UsageFileNotRegular => f.write_str(
+                "the usage budget is set but the usage file is not a regular file \
+                 (a symbolic link, a directory or something else), so nothing was sent. \
+                 Delete it: $XDG_STATE_HOME/kun/usage.json (default ~/.local/state/kun/usage.json)",
+            ),
         }
     }
 }
@@ -300,10 +358,39 @@ mod tests {
             (CliError::EndpointNotSupported { provider: "google" }, 3),
             (CliError::KeychainFailed, 1),
             (CliError::Unexpected("x"), 1),
+            (budget_reached(), 8),
+            (CliError::UsageFileUnusable, 3),
+            (CliError::UsageFileNotSaveable, 3),
+            (CliError::UsageFileNotRegular, 3),
         ];
         for (error, code) in cases {
             assert_eq!(error.exit_code(), code, "{error:?}");
         }
+    }
+
+    fn budget_reached() -> CliError {
+        CliError::BudgetReached {
+            provider: "google",
+            used: 448_210,
+            limit: 450_000,
+            needed: 3120,
+            month: Month::parse("2026-11").unwrap(),
+        }
+    }
+
+    #[test]
+    fn the_budget_message_is_fixed_wording_with_numbers_only() {
+        assert_eq!(
+            budget_reached().to_string(),
+            "monthly usage budget for google reached: 448210 of 450000 characters used; \
+             this text needs 3120. It resets on 2026-12-01 (UTC). \
+             Raise it with: kun budget set google <chars>"
+        );
+        assert!(
+            CliError::UsageFileUnusable
+                .to_string()
+                .contains("Delete it")
+        );
     }
 
     #[test]

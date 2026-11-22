@@ -6,7 +6,7 @@
 //! The module is split by job; every public item is re-exported here, so
 //! callers use `kun_core::config::X`:
 //!
-//! - `schema`: the config types (`FileConfig`, `EffectiveConfig`, ...)
+//! - `schema`: the config types (`FileConfig`, `EffectiveConfig`, `BudgetSettings`, ...)
 //! - `error`: `ConfigError`
 //! - `load`: reading files, validation and the `0600` permission check
 //! - `owner`: the uid comparison behind skipping a Project Config owned by another user (Unix)
@@ -30,6 +30,6 @@ pub use load::{load_project_config, load_project_config_if_owned, load_user_conf
 pub use merge::merge;
 pub use owner::is_owned_by;
 pub use schema::{
-    DEFAULT_MAX_CHARS, DEFAULT_TIMEOUT_SECS, EffectiveConfig, FileConfig, FileCredentials,
-    LanguagePair, Overrides, ProviderName, ProviderSettings, SecretGuardSettings,
+    BudgetSettings, DEFAULT_MAX_CHARS, DEFAULT_TIMEOUT_SECS, EffectiveConfig, FileConfig,
+    FileCredentials, LanguagePair, Overrides, ProviderName, ProviderSettings, SecretGuardSettings,
 };

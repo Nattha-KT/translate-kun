@@ -17,6 +17,7 @@
 - **Secret Guard**: scans outgoing text for API keys, tokens and private keys before anything is sent.
 - API keys are stored in the OS keychain (`kun auth login`), or read from environment variables for CI. Keys are never accepted as command-line flags.
 - Project Config (`.kun.toml`, created by `kun init`) and User Config, with strict trust rules for the project file.
+- **Usage Budget** (opt-in): a local monthly character limit per Provider, so `kun` stops before you pass a free tier.
 - `--json` output for scripts and editor integrations.
 - Stable exit codes. Translation on stdout, diagnostics on stderr.
 - No telemetry, no cache, no history. The only network traffic is to the Provider you choose.
@@ -93,6 +94,9 @@ kun --json :th "hello"
 
 # Use the other Provider
 kun --provider anthropic :th "hello"
+
+# Stay inside a free tier: refuse to send more than 450,000 characters a month
+kun budget set google 450000
 ```
 
 For CI, set `KUN_GOOGLE_API_KEY` or `ANTHROPIC_API_KEY` in the environment instead of using the keychain.
@@ -150,12 +154,12 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 | 0 | Success |
 | 1 | Unexpected error (including a keychain read or write failure) |
 | 2 | Usage error: bad arguments, no text, or no Target Language |
-| 3 | Configuration error, including a credential in a Project Config, or no OS keychain for `kun auth login` |
+| 3 | Configuration error, including a credential or a `[budget]` in a Project Config, or no OS keychain for `kun auth login` |
 | 4 | Missing credentials |
 | 5 | Network or Provider error |
 | 6 | Blocked by the Secret Guard (or you answered "no" at its prompt) |
 | 7 | Input longer than the size limit (10,000 characters by default) |
-| 8 | Rate limited or quota exceeded: waiting, or checking your Provider account, may help (a script can retry on 8) |
+| 8 | Rate limited or quota exceeded, or your local monthly Usage Budget was reached: waiting, or checking your Provider account, may help (a script can retry on 8) |
 
 ## Contributing
 

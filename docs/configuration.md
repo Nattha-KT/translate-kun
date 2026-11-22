@@ -55,6 +55,8 @@ Types: `string`, `integer`, `boolean`, `array`. "Both" means the key is allowed 
 | `[providers.<name>]` `endpoint` | string | none | **User only** | A custom endpoint URL. See the note below. |
 | `[credentials]` `google_api_key` | string | none | **User only** | Google API key (a fallback, see below). |
 | `[credentials]` `anthropic_api_key` | string | none | **User only** | Anthropic API key (a fallback, see below). |
+| `[budget]` `google_chars_per_month` | integer ≥ 1 | none (no limit) | **User only** | Usage Budget for Google: the most characters `kun` may send per calendar month. See [Usage budget](#usage-budget). |
+| `[budget]` `anthropic_chars_per_month` | integer ≥ 1 | none (no limit) | **User only** | Usage Budget for Anthropic, in characters per calendar month. |
 
 > **Current limitation.** Custom endpoints are not supported by any Provider yet. The key `providers.<name>.endpoint` is accepted and validated, but if it is set for the Provider you use, `kun` stops with exit 3 (`providers.<name>.endpoint is not supported yet; remove it to use the public API.`) instead of silently sending your text to the public API.
 
@@ -67,6 +69,7 @@ These keys are rejected in a Project Config with a hard error (exit 3):
 - **`[credentials]` and any key whose name contains `key`, `token`, `secret`, `password` or `credential`** (the table `[secret_guard]` is the one exception). A credential in a file you commit is a leak waiting to happen.
 - **`endpoint`.** A repository must not be able to redirect your text and key to its own server.
 - **`allow_secrets`.** A repository must not be able to switch off the Secret Guard.
+- **`[budget]`.** A repository must not be able to raise or remove your spending guard.
 
 The error names the file and the setting but never prints its value.
 
@@ -94,6 +97,21 @@ The `[credentials]` table is used **only if the User Config file is readable by 
 - `kun auth status` reports that the config-file credentials were ignored.
 
 The rest of the file (target, provider and so on) is still used. File modes are checked on Unix only.
+
+## Usage budget
+
+The `[budget]` table sets a **Usage Budget**: a limit, in characters per calendar month (UTC), on what `kun` sends to one Provider. A missing key means no limit for that Provider, and with no limit `kun` never reads or writes the usage file. Each value is an integer of at least 1 (`0` is a configuration error).
+
+```toml
+# ~/.config/kun/config.toml
+[budget]
+google_chars_per_month = 450000
+anthropic_chars_per_month = 50000
+```
+
+It is **User Config only**: a `[budget]` table in a Project Config is a configuration error (exit 3). You can edit the file by hand, or use `kun budget set <provider> <chars>` and `kun budget unset <provider>`, which keep the rest of the file and its comments. Characters are counted when a call is made and refunded if the call fails. See [usage.md](usage.md#usage-budget) for exactly what is counted and what happens when the limit is reached.
+
+The counters are kept in a separate state file, **not** in the config: `$XDG_STATE_HOME/kun/usage.json` if `XDG_STATE_HOME` is an absolute path, otherwise `~/.local/state/kun/usage.json`. It holds counters only and is written with mode `0600`. It must be a regular file (not a symbolic link or a directory), and `kun` must be able to write it, or it sends nothing and exits with 3. To start counting from 0 before the month ends, delete it.
 
 ## Proxies
 
@@ -125,4 +143,7 @@ timeout_secs = 30
 
 [providers.anthropic]
 model = "claude-haiku-5-5"
+
+[budget]
+google_chars_per_month = 450000
 ```

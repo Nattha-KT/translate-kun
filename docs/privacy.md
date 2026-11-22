@@ -16,6 +16,7 @@ Details that are easy to miss:
 - **`style` is sent to Anthropic.** If you set `style` (in a config file or the Project Config), that text is part of the request to the Anthropic Provider. The Google Provider ignores it.
 - **The Provider sees ordinary network metadata** that any HTTPS request carries, such as your IP address (or your proxy's). `kun` honours `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY`.
 - **A Project Config can change which Provider you use** (it cannot add credentials or endpoints, see [ADR 0003](adr/0003-project-config-is-untrusted.md)). `kun` prints `provider: …` on stderr, and `kun --dry-run` shows the destination before anything is sent, so check it in a repository you do not trust.
+- **A Usage Budget keeps a local counter.** When you set a [usage budget](usage.md#usage-budget), `kun` keeps a small file on your machine, `usage.json`, that holds only per-Provider character counts for the current month, never any text. It is never sent anywhere.
 - **Text you pass as arguments** is saved in your shell history and visible in `ps` to other local users before `kun` even starts. Send sensitive text through stdin. See [SECURITY.md](../SECURITY.md).
 
 ## Verify it yourself
