@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-First public version, planned as 0.1.0.
+## [0.1.0] - 2026-11-22
+
+First public release.
 
 ### Added
 
@@ -98,4 +100,5 @@ Pre-publish hardening (S15):
 
 - README: new "Where your text goes" note. Your text, after the Secret Guard, goes to the Provider you chose and is handled under that Provider's terms. `docs/privacy.md` says the same.
 
-[Unreleased]: https://github.com/machngai/translate-kun/commits/main
+[Unreleased]: https://github.com/machngai/translate-kun/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/machngai/translate-kun/releases/tag/v0.1.0
