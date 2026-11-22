@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement by contacting the
-maintainer on GitHub: `@Nattha-KT`. You can also use GitHub's private reporting
+maintainer on GitHub: `@natthakac`. You can also use GitHub's private reporting
 and moderation tools, for example by reporting the content or user through
 GitHub. Please do not post details of an incident in a public issue.
 

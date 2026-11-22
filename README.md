@@ -1,8 +1,8 @@
 # translate-kun
 
-[![CI](https://github.com/Nattha-KT/translate-kun/actions/workflows/ci.yml/badge.svg)](https://github.com/Nattha-KT/translate-kun/actions/workflows/ci.yml)
+[![CI](https://github.com/machngai/translate-kun/actions/workflows/ci.yml/badge.svg)](https://github.com/machngai/translate-kun/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Nattha-KT/translate-kun/badge)](https://scorecard.dev/viewer/?uri=github.com/Nattha-KT/translate-kun)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/machngai/translate-kun/badge)](https://scorecard.dev/viewer/?uri=github.com/machngai/translate-kun)
 
 `kun` is a command-line translator for developers who work in the terminal. It is inspired by [Translate Shell](https://github.com/soimort/translate-shell), but it uses official, key-authenticated translation services instead of scraped web endpoints, so it does not break when a free endpoint changes. It reads text from arguments or stdin, detects the source language, and prints the translation on stdout, which makes it easy to use in pipes and scripts. Thai ↔ English is a first-class use case.
 
@@ -32,7 +32,7 @@ cargo install translate-kun
 From source (Rust stable, installed with [rustup](https://rustup.rs)):
 
 ```sh
-git clone https://github.com/Nattha-KT/translate-kun
+git clone https://github.com/machngai/translate-kun
 cd translate-kun
 cargo install --path crates/kun
 ```
