@@ -15,17 +15,17 @@ Examples:
   kun I love it                translates \"I love it\" (`it` is never a language)
 
 A language is only recognised as the first argument in the form `:xx` or `xx:yy`.
-Text that starts with `auth`, `init` or `completions` needs `--` first: kun :th -- auth is great
+Text that starts with `auth`, `budget`, `init` or `completions` needs `--` first: kun :th -- auth is great
 Set up: `kun init` (Project Config), `kun auth login google` (API key),
-`kun completions <shell>` (shell completions).
+`kun budget set google 450000` (monthly usage budget), `kun completions <shell>` (shell completions).
 Exit codes: 0 ok, 1 unexpected, 2 usage, 3 config, 4 missing credentials,
 5 network or provider, 6 blocked by the Secret Guard, 7 input too large,
 8 rate limited or quota exceeded (retrying later may help).";
 
 /// A command-line translator for developers.
 ///
-/// `kun auth ...`, `kun init` and `kun completions` are subcommands and win
-/// over the text. To translate text that starts with one of those words, put
+/// `kun auth ...`, `kun budget ...`, `kun init` and `kun completions` are
+/// subcommands and win over the text. To translate text that starts with one of those words, put
 /// `--` before it.
 #[derive(Parser)]
 #[command(
@@ -51,7 +51,7 @@ pub struct Cli {
     pub provider: Option<String>,
 
     /// Print one JSON object on stdout (see docs/json-output.md)
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub json: bool,
 
     /// Show exactly what would be sent (host, text after the Secret Guard), and send nothing
@@ -84,6 +84,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Set, remove or show the monthly usage budget (characters per Provider)
+    Budget {
+        #[command(subcommand)]
+        action: Option<BudgetAction>,
+    },
     /// Create a `.kun.toml` Project Config in the current directory
     Init {
         /// Overwrite an existing `.kun.toml`
@@ -114,7 +119,33 @@ pub enum AuthAction {
     Status,
 }
 
-/// `google` or `anthropic`, for the `auth` subcommands.
+#[derive(Subcommand)]
+pub enum BudgetAction {
+    /// Show the limit, the characters used this month and what is left (the default)
+    Status,
+    /// Set the monthly limit of a provider, in characters (written to the User Config)
+    Set {
+        #[arg(value_name = "PROVIDER", value_parser = parse_provider_name)]
+        provider: ProviderName,
+        #[arg(value_name = "CHARS", value_parser = parse_budget_chars)]
+        chars: u64,
+    },
+    /// Remove the monthly limit of a provider
+    Unset {
+        #[arg(value_name = "PROVIDER", value_parser = parse_provider_name)]
+        provider: ProviderName,
+    },
+}
+
+/// A whole number of at least 1, for `kun budget set`.
+fn parse_budget_chars(value: &str) -> Result<u64, String> {
+    match value.parse::<u64>() {
+        Ok(number) if number >= 1 => Ok(number),
+        _ => Err("must be a whole number of at least 1".to_string()),
+    }
+}
+
+/// `google` or `anthropic`, for the `auth` and `budget` subcommands.
 fn parse_provider_name(value: &str) -> Result<ProviderName, String> {
     ProviderName::ALL
         .into_iter()
@@ -309,6 +340,28 @@ mod tests {
             .err()
             .unwrap();
         assert!(describe_parse_error(&error).contains("--max-chars"));
+    }
+
+    #[test]
+    fn a_budget_must_be_a_positive_whole_number() {
+        assert_eq!(parse_budget_chars("450000"), Ok(450_000));
+        for bad in ["0", "-1", "1.5", "many", ""] {
+            assert!(parse_budget_chars(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn json_may_come_after_the_budget_subcommand() {
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from(["kun", "budget", "status", "--json"]).unwrap();
+        assert!(cli.json);
+        let cli = Cli::try_parse_from(["kun", "--json", "budget"]).unwrap();
+        assert!(cli.json);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Budget { action: None })
+        ));
     }
 
     #[test]

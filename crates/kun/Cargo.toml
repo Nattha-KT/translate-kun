@@ -34,6 +34,8 @@ rpassword.workspace = true
 # `--json` output.
 serde.workspace = true
 serde_json.workspace = true
+# `kun budget set | unset` edits the User Config without losing its comments.
+toml_edit.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

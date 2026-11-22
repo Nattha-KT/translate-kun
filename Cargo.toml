@@ -35,6 +35,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
 toml = "1.2.1"
+# `kun budget set | unset`: edits the User Config and keeps its comments and
+# layout (`toml` cannot). Already in the dependency tree (via proc-macro-crate).
+toml_edit = "0.25.19"
 ureq = { version = "3.5.2", features = ["json"] }
 # dev-dependencies
 assert_cmd = "2"

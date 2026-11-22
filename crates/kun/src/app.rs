@@ -5,14 +5,16 @@ use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
 use clap::CommandFactory;
-use kun_core::config::Overrides;
+use kun_core::budget::Month;
+use kun_core::config::{BudgetSettings, Overrides};
 use kun_core::language::LanguageCode;
 use kun_core::translate::{
     TargetPlan, TranslateError, Translated, resolve_target, translate_with_terms,
 };
 
-use crate::args::{AuthAction, Cli, Command, LanguageSpec, split_positionals};
+use crate::args::{AuthAction, BudgetAction, Cli, Command, LanguageSpec, split_positionals};
 use crate::auth::{self, open_store};
+use crate::budget::{self, BudgetedProvider};
 use crate::dry_run::build_report;
 use crate::error::CliError;
 use crate::guard::{DryDecision, ask_on_terminal, dry_run_secret_guard, run_secret_guard};
@@ -58,6 +60,19 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
                 _ => None,
             };
             return auth::run(action, user.as_ref());
+        }
+        Some(Command::Budget { action }) => {
+            // Only `status` needs the limits, and only from the User Config:
+            // a broken Project Config must not matter.
+            let limits = match action {
+                None | Some(BudgetAction::Status) => {
+                    let home = std::env::var_os("HOME").map(PathBuf::from);
+                    let xdg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+                    crate::settings::load_user_budget(home.as_deref(), xdg.as_deref())?
+                }
+                _ => BudgetSettings::default(),
+            };
+            return budget::run(action, cli.json, &limits, &budget_paths(), Month::now());
         }
         None => {}
     }
@@ -164,13 +179,34 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         user_file: user_credentials.as_ref(),
     };
     let provider = build_provider(provider_name, &config, &sources)?;
-    let translated = translate_with_terms(
-        &*provider,
+    // The Usage Budget of the Provider in use (`config.provider`: the fake
+    // Provider of the tests counts as the default one). With no limit this is
+    // a pass-through that never touches the usage file.
+    let budgeted = BudgetedProvider::new(
+        provider,
+        config.provider,
+        config.budget.limit(config.provider),
+        budget_paths().usage.as_deref(),
+        Month::now(),
+    )?;
+    let result = translate_with_terms(
+        &budgeted,
         &guarded.text,
         source.clone(),
         plan.clone(),
         &config.protected_terms,
-    )?;
+    );
+    // A call refused by the budget comes back as a generic Provider error:
+    // report the real reason (exit code 8) instead.
+    if let Some(error) = budgeted.refusal() {
+        return Err(error);
+    }
+    let translated = result?;
+    if budgeted.counter_not_saved() {
+        warnings.add(
+            "could not update the usage counter, so the monthly usage budget may count too little",
+        );
+    }
 
     // 7. Output: the translation on stdout, everything else on stderr
     //    (or, with `--json`, one JSON object on stdout).
@@ -231,7 +267,7 @@ fn run_dry_run(
     };
     // The warnings are kept in the report only with `--json`; otherwise
     // `Warnings` has already printed them on stderr.
-    let report = build_report(
+    let mut report = build_report(
         provider_name,
         config,
         &sources,
@@ -239,6 +275,14 @@ fn run_dry_run(
         plan,
         guarded,
         warnings.into_list(),
+    )?;
+    // The Usage Budget: read, never changed by a dry run.
+    report.budget = budget::dry_run_budget(
+        config.provider,
+        &config.budget,
+        budget_paths().usage.as_deref(),
+        Month::now(),
+        report.chars_to_send(),
     )?;
     if cli.json {
         return write_stdout(&report.to_json().render());
@@ -252,6 +296,14 @@ fn strip_control_chars(text: &str) -> String {
     text.chars()
         .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
         .collect()
+}
+
+/// The User Config and usage file paths, from HOME, XDG_CONFIG_HOME and XDG_STATE_HOME.
+fn budget_paths() -> budget::Paths {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let xdg_config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+    let xdg_state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from);
+    budget::Paths::new(home.as_deref(), xdg_config.as_deref(), xdg_state.as_deref())
 }
 
 /// Loads the config files using HOME, XDG_CONFIG_HOME and the current directory.
@@ -342,7 +394,7 @@ fn combine_languages(
 
 /// Writes the text and a final newline (unless it already ends with one).
 /// A closed pipe (`kun ... | head`) is not an error.
-fn write_stdout(text: &str) -> Result<(), CliError> {
+pub(crate) fn write_stdout(text: &str) -> Result<(), CliError> {
     let mut out = io::stdout().lock();
     let mut result = out.write_all(text.as_bytes());
     if result.is_ok() && !text.ends_with('\n') {

@@ -85,6 +85,8 @@ pub fn merge(
         timeout_secs,
         secret_guard,
         providers,
+        // The Usage Budget comes from the User Config only (ADR 0003).
+        budget: user.budget,
     }
 }
 
@@ -122,6 +124,34 @@ mod tests {
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn the_budget_comes_from_the_user_config_only() {
+        use crate::config::schema::BudgetSettings;
+
+        let user = FileConfig {
+            budget: BudgetSettings {
+                google_chars_per_month: Some(450_000),
+                anthropic_chars_per_month: None,
+            },
+            ..FileConfig::default()
+        };
+        // A hand-built Project layer (the parser would reject it) is ignored.
+        let project = FileConfig {
+            budget: BudgetSettings {
+                google_chars_per_month: Some(u64::MAX),
+                anthropic_chars_per_month: Some(1),
+            },
+            ..FileConfig::default()
+        };
+
+        let config = merge(&Overrides::default(), Some(&project), Some(&user));
+        assert_eq!(config.budget.limit(ProviderName::Google), Some(450_000));
+        assert_eq!(config.budget.limit(ProviderName::Anthropic), None);
+
+        let none = merge(&Overrides::default(), Some(&project), None);
+        assert_eq!(none.budget, BudgetSettings::default());
     }
 
     #[test]
@@ -310,6 +340,7 @@ mod tests {
             },
             providers,
             credentials: FileCredentials::default(),
+            budget: Default::default(),
             credentials_ignored_insecure: false,
         };
         let effective = merge(&Overrides::default(), Some(&file), Some(&file));

@@ -42,6 +42,54 @@ pub struct DryRunSecretGuard {
     pub findings: Vec<DryRunFinding>,
 }
 
+/// The Usage Budget part of a dry run. Numbers only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct DryRunBudget {
+    pub limit: u64,
+    /// Characters counted so far this month.
+    pub used: u64,
+    /// Characters this run would send (the first call).
+    pub needs: u64,
+    /// A real run would be refused by the budget.
+    pub would_refuse: bool,
+}
+
+/// One Provider in the `kun budget status --json` object.
+#[derive(Serialize)]
+pub struct BudgetStatusProvider {
+    /// `null` = no limit.
+    pub limit: Option<u64>,
+    pub used: u64,
+    /// `null` = no limit.
+    pub remaining: Option<u64>,
+}
+
+/// The Providers in the `kun budget status --json` object.
+#[derive(Serialize)]
+pub struct BudgetStatusProviders {
+    pub google: BudgetStatusProvider,
+    pub anthropic: BudgetStatusProvider,
+}
+
+/// The object printed by `kun budget status --json`. Numbers and dates only.
+/// Field order here is the order in the output.
+#[derive(Serialize)]
+pub struct BudgetStatusOutput {
+    pub schema_version: u32,
+    /// The UTC month the counters belong to, `YYYY-MM`.
+    pub month: String,
+    /// The date the counters reset, `YYYY-MM-DD` (UTC).
+    pub resets_on: String,
+    pub providers: BudgetStatusProviders,
+}
+
+impl BudgetStatusOutput {
+    /// The object as one line of JSON.
+    pub fn render(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+}
+
 /// The object printed by `--dry-run --json`. It holds the text that would be
 /// sent, so it has no `Debug`. Field order here is the order in the output.
 #[derive(Serialize)]
@@ -59,6 +107,8 @@ pub struct DryRunOutput {
     pub credentials: String,
     pub secret_guard: DryRunSecretGuard,
     pub text: Option<String>,
+    /// `null` when no Usage Budget is set for the Provider.
+    pub budget: Option<DryRunBudget>,
     pub warnings: Vec<String>,
 }
 
@@ -96,11 +146,17 @@ mod tests {
                 }],
             },
             text: Some("hi".to_string()),
+            budget: Some(DryRunBudget {
+                limit: 10,
+                used: 4,
+                needs: 2,
+                would_refuse: false,
+            }),
             warnings: Vec::new(),
         };
         assert_eq!(
             output.render(),
-            r#"{"schema_version":1,"dry_run":true,"provider":"google","host":"translation.googleapis.com","model":null,"source":null,"target":"th","pair":null,"second_call_possible":false,"would_send":true,"credentials":"none","secret_guard":{"decision":"redact","findings":[{"kind":"JWT","start":1,"end":2}]},"text":"hi","warnings":[]}"#
+            r#"{"schema_version":1,"dry_run":true,"provider":"google","host":"translation.googleapis.com","model":null,"source":null,"target":"th","pair":null,"second_call_possible":false,"would_send":true,"credentials":"none","secret_guard":{"decision":"redact","findings":[{"kind":"JWT","start":1,"end":2}]},"text":"hi","budget":{"limit":10,"used":4,"needs":2,"would_refuse":false},"warnings":[]}"#
         );
     }
 

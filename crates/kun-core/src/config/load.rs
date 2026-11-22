@@ -10,7 +10,8 @@ use super::error::ConfigError;
 #[cfg(unix)]
 use super::owner::is_owned_by;
 use super::schema::{
-    FileConfig, FileCredentials, LanguagePair, ProviderName, ProviderSettings, SecretGuardSettings,
+    BudgetSettings, FileConfig, FileCredentials, LanguagePair, ProviderName, ProviderSettings,
+    SecretGuardSettings,
 };
 use super::trust::parse_project_config;
 use crate::language::LanguageCode;
@@ -31,6 +32,7 @@ struct RawConfig {
     secret_guard: SecretGuardSettings,
     providers: HashMap<ProviderName, ProviderSettings>,
     credentials: FileCredentials,
+    budget: BudgetSettings,
 }
 
 fn invalid(path: &Path, key: &str) -> ConfigError {
@@ -68,6 +70,12 @@ fn validate(path: &Path, raw: RawConfig) -> Result<FileConfig, ConfigError> {
     if raw.timeout_secs == Some(0) {
         return Err(invalid(path, "timeout_secs"));
     }
+    if raw.budget.google_chars_per_month == Some(0) {
+        return Err(invalid(path, "budget.google_chars_per_month"));
+    }
+    if raw.budget.anthropic_chars_per_month == Some(0) {
+        return Err(invalid(path, "budget.anthropic_chars_per_month"));
+    }
 
     Ok(FileConfig {
         target,
@@ -80,6 +88,7 @@ fn validate(path: &Path, raw: RawConfig) -> Result<FileConfig, ConfigError> {
         secret_guard: raw.secret_guard,
         providers: raw.providers,
         credentials: raw.credentials,
+        budget: raw.budget,
         credentials_ignored_insecure: false,
     })
 }
@@ -558,6 +567,48 @@ endpoint = "http://localhost:11434"
             assert!(!output.contains(FAKE_KEY), "leaked in: {output}");
         }
         assert!(format!("{config:?}").contains("credentials: <redacted>"));
+    }
+
+    #[test]
+    fn user_config_accepts_a_budget_table() {
+        let text = "[budget]\ngoogle_chars_per_month = 450000\nanthropic_chars_per_month = 50000";
+        let config = parse_user_config(&path(), text).unwrap();
+        assert_eq!(config.budget.limit(ProviderName::Google), Some(450_000));
+        assert_eq!(config.budget.limit(ProviderName::Anthropic), Some(50_000));
+    }
+
+    #[test]
+    fn a_missing_budget_key_means_no_limit() {
+        let none = parse_user_config(&path(), "").unwrap();
+        assert_eq!(none.budget.limit(ProviderName::Google), None);
+
+        let one = parse_user_config(&path(), "[budget]\ngoogle_chars_per_month = 1").unwrap();
+        assert_eq!(one.budget.limit(ProviderName::Google), Some(1));
+        assert_eq!(one.budget.limit(ProviderName::Anthropic), None);
+    }
+
+    #[test]
+    fn a_zero_budget_is_invalid_and_names_the_key() {
+        for key in ["google_chars_per_month", "anthropic_chars_per_month"] {
+            let text = format!("[budget]\n{key} = 0");
+            match parse_user_config(&path(), &text).unwrap_err() {
+                ConfigError::Invalid { key: got, .. } => assert_eq!(got, format!("budget.{key}")),
+                other => panic!("{text}: unexpected {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_budget_that_is_not_a_whole_number_is_a_parse_error() {
+        for text in [
+            "[budget]\ngoogle_chars_per_month = -5",
+            "[budget]\ngoogle_chars_per_month = 1.5",
+            "[budget]\ngoogle_chars_per_month = \"many\"",
+            "[budget]\ndaily_chars = 5",
+        ] {
+            let err = parse_user_config(&path(), text).unwrap_err();
+            assert!(matches!(err, ConfigError::Parse { .. }), "{text}");
+        }
     }
 
     #[test]
