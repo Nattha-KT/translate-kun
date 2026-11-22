@@ -4,14 +4,15 @@
   "meta": {
     "title": "translate-kun: how one translation runs",
     "locale": "en",
-    "output": ".archify/architecture-translate-kun-20261122-200305/translate-kun-architecture.html",
+    "output": ".archify/architecture-translate-kun-20261122-200305/review-2/translate-kun-architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/machngai/translate-kun.git",
       "provider": "github",
       "link_mode": "web",
       "revision": "c0955114edc8c318f3095874daf96afd22cddb59"
-    }
+    },
+    "visual_preset": "signal-flow"
   },
   "components": [
     {
