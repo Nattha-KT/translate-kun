@@ -9,8 +9,11 @@ edition = "2024"
 # need 1.89). The CI `msrv` job builds and tests on exactly this toolchain.
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
-authors = ["Nattha KT"]
+authors = ["natthaka"]
 repository = "https://github.com/machngai/translate-kun"
+# cargo-dist needs a homepage for the Homebrew formula. The `#readme` anchor keeps
+# it different from `repository` (cargo warns when the two are identical).
+homepage = "https://github.com/machngai/translate-kun#readme"
 readme = "README.md"
 
 [workspace.dependencies]
@@ -52,3 +55,8 @@ redundant_closure_for_method_calls = "warn"
 manual_let_else = "warn"
 cloned_instead_of_copied = "warn"
 explicit_iter_loop = "warn"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

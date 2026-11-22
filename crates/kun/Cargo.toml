@@ -9,7 +9,9 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+homepage.workspace = true
 readme.workspace = true
+documentation = "https://github.com/machngai/translate-kun/blob/main/docs/usage.md"
 # Test fixtures contain fake, secret-looking strings. Do not ship them.
 exclude = ["tests/"]
 

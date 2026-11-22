@@ -1,0 +1,27 @@
+# Third-party licenses
+
+`kun` (translate-kun) is licensed under MIT OR Apache-2.0 (see `LICENSE-MIT`, `LICENSE-APACHE` and `NOTICE`). This file lists the third-party Rust crates that are built into the binary, and their licenses. It is generated with [cargo-about](https://github.com/EmbarkStudios/cargo-about).
+
+## Overview
+
+{{#each overview}}
+- [{{{name}}}](#{{{id}}}) ({{count}})
+{{/each}}
+
+## Licenses
+{{#each licenses}}
+
+### {{{name}}}
+
+<a id="{{{id}}}"></a>
+
+Used by:
+
+{{#each used_by}}
+- {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} ({{{crate.repository}}}){{/if}}
+{{/each}}
+
+```text
+{{{text}}}
+```
+{{/each}}
