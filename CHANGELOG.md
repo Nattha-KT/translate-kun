@@ -57,6 +57,14 @@ First public version, planned as 0.1.0.
 - Issue forms and a pull request template.
 - CI on Linux and macOS (format, clippy, tests).
 
+**Release tooling (S8)**
+
+- `cargo-dist` builds release archives for macOS (Apple silicon, Intel), Linux (x86_64, aarch64) and Windows (x86_64, best effort) with SHA-256 checksums (`.github/workflows/release.yml`). Each archive holds `kun`, the licence files, `NOTICE`, `README.md` and `THIRD-PARTY-LICENSES.md` (made with `cargo-about`).
+- Verifiable artefacts: build provenance attestations (`gh attestation verify`), an SBOM (CycloneDX), and the dependency list embedded in the binary (`cargo-auditable`, `cargo audit bin`).
+- Homebrew tap: `brew install machngai/tap/kun`. Pre-releases do not update the tap.
+- crates.io: `cargo install translate-kun`. A workflow publishes `translate-kun-core` and then `translate-kun` through crates.io Trusted Publishing when a non-pre-release GitHub Release is published (`.github/workflows/publish-crates.yml`).
+- Publishing metadata for both crates, and a maintainer checklist in `docs/development/releasing.md`.
+
 ### Fixed
 
 - Windows: the test job now gates CI. On Windows the "ignoring stdin" warning (also in the `--json` `warnings`) still appears whenever stdin is redirected, even from an empty file or `NUL`: std cannot tell a pipe from an empty file there without `unsafe`, and guessing wrong would silently drop piped text. On Unix, `/dev/null` and an empty file on stdin still give no warning.

@@ -92,6 +92,10 @@ cargo mutants -p translate-kun-core --file crates/kun-core/src/secret_guard.rs -
 
 The results go to `mutants.out/` (do not commit it; or choose another place with `--output <dir>`); `missed.txt` lists the survivors. Add a test that fails for a missed mutant when the mutant changes behaviour that matters. Some mutants in `next_line` turn a loop into an endless one: they count as detected ("timeout"), but on some machines the hung test process is not killed and the run stalls. If that happens, stop the stray `secret_guard-*` process, or leave `next_line` out of the run with `--exclude-re next_line`. Do not chase equivalent mutants (the code behaves the same either way) or cosmetic ones (for example a `Display` text nobody parses).
 
+## Releasing
+
+Maintainers: the release steps are in [docs/development/releasing.md](docs/development/releasing.md).
+
 ## Code guidelines
 
 - Write simple, idiomatic Rust. Prefer owned types over lifetimes where the cost is small, no async, no macros of your own, no clever generics.

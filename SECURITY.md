@@ -59,4 +59,25 @@ What has been checked, and how much weight to give it.
 - **Fuzzing.** Three [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets (`secret_guard`, `config_parse`, `protected_terms`) run weekly in CI for a short time. See [CONTRIBUTING.md](CONTRIBUTING.md#fuzzing) to run them locally.
 - **OpenSSF Scorecard** scores the repository's security practices automatically and publishes the result. The score is shown as a badge in the [README](README.md).
 
+**Verifiable releases.** Release archives are built by the `release.yml` workflow on GitHub-hosted runners, not on a developer's machine. Each one has a SHA-256 checksum and a build provenance attestation (GitHub Artifact Attestations, SLSA-style). To check a download:
+
+```sh
+# Provenance: needs the GitHub CLI (`gh`). It proves which repository,
+# workflow and commit built the file.
+gh attestation verify <file> -R machngai/translate-kun
+
+# Checksum: the `<file>.sha256` file is published next to each archive.
+sha256sum -c <file>.sha256          # Linux
+shasum -a 256 -c <file>.sha256      # macOS
+```
+
+Every release also carries a CycloneDX **SBOM** (software bill of materials), and the binaries are built with `cargo-auditable`, which embeds the exact dependency list in the binary. To check an installed `kun` against the RustSec advisory database:
+
+```sh
+cargo install cargo-audit --locked
+cargo audit bin "$(which kun)"
+```
+
+The attestation shows where a file came from. It does not show that the code is free of bugs. Third-party licences of the built-in dependencies are in `THIRD-PARTY-LICENSES.md`, inside every archive. The maintainer's release steps are in [docs/development/releasing.md](docs/development/releasing.md).
+
 **Privacy.** What data leaves your machine, and how to verify it yourself with `kun --dry-run`, is in [docs/privacy.md](docs/privacy.md).
