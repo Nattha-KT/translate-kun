@@ -1,0 +1,438 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "translate-kun: how one translation runs",
+    "locale": "en",
+    "output": ".archify/architecture-translate-kun-20261122-200305/translate-kun-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/machngai/translate-kun.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "c0955114edc8c318f3095874daf96afd22cddb59"
+    }
+  },
+  "components": [
+    {
+      "id": "you",
+      "type": "external",
+      "label": "You",
+      "sublabel": "terminal, pipe or script",
+      "icon": "person",
+      "pos": [
+        40,
+        220
+      ],
+      "size": [
+        130,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun/src/input.rs",
+          "line": 26,
+          "end_line": 45,
+          "label": "args or stdin"
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "kun CLI",
+      "sublabel": "parse, plan, exit code",
+      "tag": "crates/kun",
+      "pos": [
+        290,
+        220
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun/src/main.rs",
+          "line": 22,
+          "end_line": 59,
+          "label": "entry point"
+        },
+        {
+          "path": "crates/kun/src/app.rs",
+          "line": 27,
+          "end_line": 221,
+          "label": "translate flow"
+        }
+      ]
+    },
+    {
+      "id": "config",
+      "type": "database",
+      "label": "Config files",
+      "sublabel": "User Config + .kun.toml",
+      "tag": "Project Config untrusted",
+      "pos": [
+        290,
+        50
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun/src/settings.rs",
+          "line": 26,
+          "end_line": 58,
+          "label": "load and merge"
+        },
+        {
+          "path": "crates/kun-core/src/config/load.rs",
+          "line": 114,
+          "end_line": 160,
+          "label": "owner and 0600 checks"
+        }
+      ]
+    },
+    {
+      "id": "guard",
+      "type": "security",
+      "label": "Secret Guard",
+      "sublabel": "scan, redact or ask",
+      "pos": [
+        530,
+        220
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun/src/guard.rs",
+          "line": 28,
+          "end_line": 98,
+          "label": "CLI decision"
+        },
+        {
+          "path": "crates/kun-core/src/secret_guard.rs",
+          "line": 318,
+          "end_line": 330,
+          "label": "scan"
+        },
+        {
+          "path": "crates/kun-core/src/secret_guard.rs",
+          "line": 615,
+          "end_line": 627,
+          "label": "decide"
+        }
+      ]
+    },
+    {
+      "id": "terms",
+      "type": "backend",
+      "label": "Protected Terms",
+      "sublabel": "placeholders in and out",
+      "pos": [
+        800,
+        220
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun-core/src/translate.rs",
+          "line": 97,
+          "end_line": 160,
+          "label": "translate_with_terms"
+        },
+        {
+          "path": "crates/kun-core/src/protected_terms.rs",
+          "line": 57,
+          "end_line": 110,
+          "label": "protect and restore"
+        }
+      ]
+    },
+    {
+      "id": "budget",
+      "type": "backend",
+      "label": "Usage Budget",
+      "sublabel": "reserve before send",
+      "tag": "opt-in",
+      "pos": [
+        1070,
+        220
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun/src/budget.rs",
+          "line": 69,
+          "end_line": 260,
+          "label": "BudgetedProvider"
+        },
+        {
+          "path": "crates/kun-core/src/budget.rs",
+          "line": 109,
+          "end_line": 130,
+          "label": "decide"
+        }
+      ]
+    },
+    {
+      "id": "usage",
+      "type": "database",
+      "label": "usage.json",
+      "sublabel": "monthly counters only",
+      "pos": [
+        1070,
+        50
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun-core/src/budget.rs",
+          "line": 238,
+          "end_line": 290,
+          "label": "load and atomic save"
+        }
+      ]
+    },
+    {
+      "id": "provider",
+      "type": "backend",
+      "label": "Provider adapter",
+      "sublabel": "one trait, two vendors",
+      "pos": [
+        1320,
+        220
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun/src/providers.rs",
+          "line": 52,
+          "end_line": 91,
+          "label": "build_provider"
+        },
+        {
+          "path": "crates/kun-core/src/provider.rs",
+          "line": 139,
+          "end_line": 150,
+          "label": "Provider trait"
+        }
+      ]
+    },
+    {
+      "id": "creds",
+      "type": "security",
+      "label": "Credentials",
+      "sublabel": "env, Keychain, 0600 file",
+      "pos": [
+        1320,
+        400
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun-core/src/credentials.rs",
+          "line": 210,
+          "end_line": 231,
+          "label": "resolve order"
+        },
+        {
+          "path": "crates/kun-core/src/credentials.rs",
+          "line": 85,
+          "end_line": 125,
+          "label": "OS keychain"
+        }
+      ]
+    },
+    {
+      "id": "google",
+      "type": "cloud",
+      "label": "Google Cloud",
+      "sublabel": "Translation v2 (default)",
+      "pos": [
+        1580,
+        130
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun-core/src/provider/google.rs",
+          "line": 29,
+          "end_line": 32,
+          "label": "endpoint and key header"
+        }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "type": "cloud",
+      "label": "Anthropic",
+      "sublabel": "Messages API",
+      "pos": [
+        1580,
+        310
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "crates/kun-core/src/provider/anthropic.rs",
+          "line": 34,
+          "end_line": 35,
+          "label": "endpoint and key header"
+        },
+        {
+          "path": "crates/kun-core/src/provider/anthropic.rs",
+          "line": 103,
+          "end_line": 120,
+          "label": "translate call"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "kun process on your machine",
+      "wraps": [
+        "cli",
+        "guard",
+        "terms",
+        "budget",
+        "provider",
+        "creds"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "you-to-cli",
+      "from": "you",
+      "to": "cli",
+      "label": "text + flags",
+      "variant": "emphasis"
+    },
+    {
+      "id": "cli-reads-config",
+      "from": "cli",
+      "to": "config",
+      "label": "load + merge",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "cli-to-guard",
+      "from": "cli",
+      "to": "guard",
+      "label": "input text",
+      "variant": "emphasis"
+    },
+    {
+      "id": "guard-to-terms",
+      "from": "guard",
+      "to": "terms",
+      "label": "safe or redacted",
+      "variant": "security"
+    },
+    {
+      "id": "terms-to-budget",
+      "from": "terms",
+      "to": "budget",
+      "label": "protected text",
+      "variant": "emphasis"
+    },
+    {
+      "id": "budget-writes-usage",
+      "from": "budget",
+      "to": "usage",
+      "label": "reserve / refund",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "budget-to-provider",
+      "from": "budget",
+      "to": "provider",
+      "label": "allowed call",
+      "variant": "emphasis"
+    },
+    {
+      "id": "provider-gets-key",
+      "from": "provider",
+      "to": "creds",
+      "label": "API key",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "provider-to-google",
+      "from": "provider",
+      "to": "google",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "provider-to-anthropic",
+      "from": "provider",
+      "to": "anthropic",
+      "label": "HTTPS",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Before anything leaves",
+      "items": [
+        "Secret Guard blocks or redacts keys and tokens (exit 6)",
+        "Size limit checked before sending (exit 7)",
+        "Usage Budget reserves characters first (exit 8)",
+        "--dry-run prints the exact text and sends nothing"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Trust rules",
+      "items": [
+        "A Project Config cannot hold keys, endpoints or budgets",
+        "Keys never appear in Debug, errors or logs",
+        "No telemetry, no cache, no automatic fallback"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Output",
+      "items": [
+        "Translation on stdout, or one JSON object with --json",
+        "Terminal output strips control characters",
+        "One exit code per failure class (0 to 8)"
+      ]
+    }
+  ]
+}
