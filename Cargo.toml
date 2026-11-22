@@ -10,7 +10,7 @@ edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 authors = ["Nattha KT"]
-repository = "https://github.com/Nattha-KT/translate-kun"
+repository = "https://github.com/machngai/translate-kun"
 readme = "README.md"
 
 [workspace.dependencies]

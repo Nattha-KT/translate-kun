@@ -13,7 +13,7 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md). To
 ## Getting the code
 
 ```sh
-git clone https://github.com/Nattha-KT/translate-kun
+git clone https://github.com/machngai/translate-kun
 cd translate-kun
 ```
 

@@ -90,4 +90,4 @@ Pre-publish hardening (S15):
 
 - README: new "Where your text goes" note. Your text, after the Secret Guard, goes to the Provider you chose and is handled under that Provider's terms. `docs/privacy.md` says the same.
 
-[Unreleased]: https://github.com/Nattha-KT/translate-kun/commits/main
+[Unreleased]: https://github.com/machngai/translate-kun/commits/main
