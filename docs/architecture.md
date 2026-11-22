@@ -2,6 +2,12 @@
 
 This page is for contributors. It explains how the code is organised, what happens during one request, and how to add a Provider. Terms such as Provider, Target Language and Secret Guard are defined in [GLOSSARY.md](../GLOSSARY.md).
 
+## Overview
+
+[![How one translation runs: kun CLI, Secret Guard, Protected Terms, Usage Budget, Provider adapter, then HTTPS to Google or Anthropic](assets/architecture.svg)](assets/architecture.svg)
+
+The diagram shows one translation from your terminal to a Provider. Every text passes the Secret Guard, Protected Terms and the optional Usage Budget before the Provider adapter sends it over HTTPS. Click the diagram to open it full size. Its source, with a file and line reference for each box, is [assets/architecture.archify.json](assets/architecture.archify.json). The sections below explain each part.
+
 ## Crate layout
 
 `translate-kun` is a Cargo workspace with two crates:
