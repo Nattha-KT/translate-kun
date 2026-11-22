@@ -49,6 +49,9 @@ pub fn user_config_path(home: Option<&Path>, xdg_config_home: Option<&Path>) -> 
 mod tests {
     use super::*;
 
+    // Unix only: on Windows the temp dir and the current directory can be on
+    // different drives, and no relative path crosses drives.
+    #[cfg(unix)]
     #[test]
     fn relative_start_is_resolved_to_an_absolute_path_first() {
         let root = tempfile::tempdir().unwrap();
@@ -122,32 +125,34 @@ mod tests {
         );
     }
 
+    /// An absolute path on every OS (`/home/me` has no drive letter, so it
+    /// is not absolute on Windows).
+    fn absolute(name: &str) -> PathBuf {
+        std::env::temp_dir().join(name)
+    }
+
     #[test]
     fn user_config_path_prefers_xdg_then_home() {
-        let home = Path::new("/home/me");
-        let xdg = Path::new("/custom/xdg");
+        let home = absolute("home-me");
+        let xdg = absolute("custom-xdg");
+        let from_xdg = xdg.join("kun").join("config.toml");
+        let from_home = home.join(".config").join("kun").join("config.toml");
         assert_eq!(
-            user_config_path(Some(home), Some(xdg)),
-            Some(PathBuf::from("/custom/xdg/kun/config.toml"))
+            user_config_path(Some(&home), Some(&xdg)),
+            Some(from_xdg.clone())
         );
-        assert_eq!(
-            user_config_path(Some(home), None),
-            Some(PathBuf::from("/home/me/.config/kun/config.toml"))
-        );
+        assert_eq!(user_config_path(Some(&home), None), Some(from_home));
         assert_eq!(user_config_path(None, None), None);
-        assert_eq!(
-            user_config_path(None, Some(xdg)),
-            Some(PathBuf::from("/custom/xdg/kun/config.toml"))
-        );
+        assert_eq!(user_config_path(None, Some(&xdg)), Some(from_xdg));
     }
 
     #[test]
     fn user_config_path_ignores_empty_or_relative_xdg() {
-        let home = Path::new("/home/me");
+        let home = absolute("home-me");
         for xdg in ["", "relative/dir"] {
             assert_eq!(
-                user_config_path(Some(home), Some(Path::new(xdg))),
-                Some(PathBuf::from("/home/me/.config/kun/config.toml")),
+                user_config_path(Some(&home), Some(Path::new(xdg))),
+                Some(home.join(".config").join("kun").join("config.toml")),
                 "{xdg:?}"
             );
         }
