@@ -31,6 +31,7 @@ Use `tdd` for item 1 (the only behaviour change), and `diagnosing-bugs` if the W
 ## Items
 
 1. **Windows: spurious "ignoring stdin" warning** (CI `test (windows-latest)` fails 4 tests in `crates/kun/tests/wiring.rs`).
+   - **Outcome (from PR CI):** on Windows, std reports a pipe as a regular file with `len() == 0`, so the metadata check hid the warning for piped data. Windows went back to "always warn when stdin is redirected". The empty-file suppression is Unix-only, and the tests that depend on it are `cfg(unix)`.
    - **Cause:** `stdin_is_known_empty()` in `input.rs` is Unix-only and returns `false` elsewhere. So on Windows, an empty file or `NUL` on stdin triggers the warning, which also appears in `--json` `warnings`.
    - **Fix:** without `unsafe` and without a new crate. For example, use `std::os::windows::io::AsHandle` and `try_clone_to_owned` → `File` → `metadata()`. An empty regular file has `is_file() && len() == 0`.
    - For `NUL`:
