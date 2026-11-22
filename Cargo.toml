@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/kun-core", "crates/kun"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-rc.1"
 edition = "2024"
 # MSRV: the highest `rust-version` among our dependencies (uuid 1.29 and aes 0.9
 # need 1.89). The CI `msrv` job builds and tests on exactly this toolchain.
@@ -17,7 +17,7 @@ homepage = "https://github.com/machngai/translate-kun#readme"
 readme = "README.md"
 
 [workspace.dependencies]
-translate-kun-core = { path = "crates/kun-core", version = "0.1.0" }
+translate-kun-core = { path = "crates/kun-core", version = "0.1.0-rc.1" }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 keyring = "4.2.0"

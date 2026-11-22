@@ -1883,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "translate-kun"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1898,7 +1898,7 @@ dependencies = [
 
 [[package]]
 name = "translate-kun-core"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "keyring",
  "log",
