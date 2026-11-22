@@ -41,9 +41,9 @@ pub fn read_input(args_text: Option<String>, max_chars: usize) -> Result<Input, 
     }
 }
 
-/// True when stdin is `/dev/null` (Unix only) or an empty regular file, so
-/// there is nothing to ignore and no warning is needed. This only looks at
-/// file metadata: it never reads and never waits.
+/// True when stdin is `/dev/null` or an empty regular file, so there is
+/// nothing to ignore and no warning is needed. This only looks at file
+/// metadata: it never reads and never waits.
 #[cfg(unix)]
 fn stdin_is_known_empty() -> bool {
     use std::os::fd::AsFd;
@@ -51,60 +51,35 @@ fn stdin_is_known_empty() -> bool {
     let Ok(fd) = io::stdin().as_fd().try_clone_to_owned() else {
         return false;
     };
-    stdin_file_is_known_empty(std::fs::File::from(fd))
-}
-
-/// Same check on Windows, through the stdin handle. The `NUL` device cannot
-/// be recognised without `unsafe` (std cannot read its metadata), so `NUL`
-/// still counts as "possibly holds data" and gets the warning.
-#[cfg(windows)]
-fn stdin_is_known_empty() -> bool {
-    use std::os::windows::io::AsHandle;
-
-    let Ok(handle) = io::stdin().as_handle().try_clone_to_owned() else {
-        return false;
-    };
-    stdin_file_is_known_empty(std::fs::File::from(handle))
-}
-
-/// On other platforms, stdin is always treated as possibly holding data.
-#[cfg(not(any(unix, windows)))]
-fn stdin_is_known_empty() -> bool {
-    false
-}
-
-#[cfg(any(unix, windows))]
-fn stdin_file_is_known_empty(file: std::fs::File) -> bool {
-    match file.metadata() {
+    match std::fs::File::from(fd).metadata() {
         Ok(metadata) => is_known_empty(&metadata),
         Err(_) => false,
     }
 }
 
-/// An empty regular file, or the `/dev/null` device (Unix only).
-#[cfg(any(unix, windows))]
+/// Off Unix, stdin is always treated as possibly holding data, so the warning
+/// shows whenever stdin is redirected. On Windows std cannot tell a pipe from
+/// an empty file without `unsafe` (a pipe reports `is_file()` and `len() == 0`
+/// there), and guessing wrong would silently drop piped text.
+#[cfg(not(unix))]
+fn stdin_is_known_empty() -> bool {
+    false
+}
+
+/// An empty regular file, or the `/dev/null` device.
+#[cfg(unix)]
 fn is_known_empty(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
     if metadata.is_file() {
         return metadata.len() == 0;
     }
-    is_dev_null(metadata)
-}
-
-#[cfg(unix)]
-fn is_dev_null(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::{FileTypeExt, MetadataExt};
-
-    if !metadata.file_type().is_char_device() {
-        return false;
+    if metadata.file_type().is_char_device() {
+        return match std::fs::metadata("/dev/null") {
+            Ok(null) => null.rdev() == metadata.rdev(),
+            Err(_) => false,
+        };
     }
-    match std::fs::metadata("/dev/null") {
-        Ok(null) => null.rdev() == metadata.rdev(),
-        Err(_) => false,
-    }
-}
-
-#[cfg(windows)]
-fn is_dev_null(_metadata: &std::fs::Metadata) -> bool {
     false
 }
 
@@ -128,19 +103,15 @@ fn read_stdin(max_chars: usize) -> Result<String, CliError> {
     String::from_utf8(bytes).map_err(|_| CliError::Usage("standard input is not valid UTF-8"))
 }
 
-#[cfg(all(test, any(unix, windows)))]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
-    fn dev_null_counts_as_empty() {
+    fn dev_null_and_empty_files_count_as_empty() {
         let null = std::fs::File::open("/dev/null").unwrap();
         assert!(is_known_empty(&null.metadata().unwrap()));
-    }
 
-    #[test]
-    fn empty_files_count_as_empty() {
         let dir = tempfile::tempdir().unwrap();
         let empty = dir.path().join("empty");
         std::fs::write(&empty, "").unwrap();

@@ -59,7 +59,7 @@ First public version, planned as 0.1.0.
 
 ### Fixed
 
-- Windows: an empty file on stdin no longer triggers the "ignoring stdin" warning (also in the `--json` `warnings`). The `NUL` device still does, because it cannot be recognised without `unsafe`.
+- Windows: the test job now gates CI. On Windows the "ignoring stdin" warning (also in the `--json` `warnings`) still appears whenever stdin is redirected, even from an empty file or `NUL`: std cannot tell a pipe from an empty file there without `unsafe`, and guessing wrong would silently drop piped text. On Unix, `/dev/null` and an empty file on stdin still give no warning.
 
 ### Added (development)
 
