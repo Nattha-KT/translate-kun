@@ -41,7 +41,7 @@ A bare word is always text, so `kun I love it` never reads `it` as Italian. An a
 
 You cannot give a language both ways. `kun :th -t fr "hi"` is a usage error (exit 2).
 
-If the text itself starts with `auth`, `budget`, `init` or `completions`, put `--` before it, because those words are subcommands:
+If the text itself starts with `auth`, `budget`, `completions`, `help` or `init`, put `--` before it, because those words are subcommands:
 
 ```sh
 kun :th -- auth is great
@@ -182,6 +182,7 @@ The message that blocks you lists only the kind of secret and its byte range. It
 
 ```sh
 $ echo "my key is AKIAFAKEEXAMPLE12345 ok" | kun --dry-run --redact en:th
+warning: possible secrets would be replaced with [REDACTED]      # stderr
 Dry run: nothing was sent.
 provider: google
 host: translation.googleapis.com

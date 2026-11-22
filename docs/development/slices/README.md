@@ -23,8 +23,8 @@ Each slice is one unit of work for one implementer, reviewed by one reviewer, ap
 | S14 | Rate limits, quotas and output limits (exit code 8) | S13 | Sonnet 5.5 / high | merged |
 | S15 | Pre-publish hardening: pinned actions, CODEOWNERS, Project Config ownership check, CodeQL, provider data notice | S14 | Sonnet 5.5 / high | merged |
 | S16 | Test depth and CI quality tools: Windows stdin fix, `proptest`, coverage, `cargo-machete`, `typos`, mutation testing, toolchain pins | S15 | Sonnet 5.5 / high | merged (PR #5, the first slice delivered as a PR) |
-
 | S17 | Monthly Usage Budget (local, opt-in): `kun budget`, `[budget]`, usage file, exit 8 | S16 | Sonnet 5.5 / high | in review |
+| S18 | README overhaul with an architecture overview (diagram, usage guide, FAQ) | S17 | Sonnet 5.5 / medium | in review |
 
 At most 2 implementers run at once, and there is 1 reviewer (Codex).
 

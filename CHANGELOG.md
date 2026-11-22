@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `--json` can now be written after a subcommand (`kun budget status --json`).
 - A `[budget]` table in a Project Config is a configuration error (exit 3): it is User Config only (ADR 0003).
 
+### Documentation
+
+- README rewritten for first-time visitors: why `kun`, a demo, a quick start, a usage guide for every feature, a configuration overview, FAQ, and a "How it works" section with an architecture diagram (`docs/assets/architecture.svg`, also in `docs/architecture.md`).
+
 ## [0.1.0] - 2026-11-22
 
 First public release.
