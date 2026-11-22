@@ -404,6 +404,18 @@ fn truncated_pem_does_not_swallow_notes_after_it() {
 }
 
 #[test]
+fn truncated_pem_stops_at_a_prose_line_with_a_colon() {
+    // `See the notes: below` is prose (the part before `:` has spaces), not a
+    // `Name: value` metadata line, so it ends the block. The base64-looking
+    // word after it is ordinary text and must stay.
+    let block = format!(
+        "{}{}",
+        "-----BEGIN PRIVATE KEY-----\n", "FAKEEXAMPLEFAKEEXAMPLE0123456789"
+    );
+    assert_pem_found("", &block, "\nSee the notes: below\nTHISISPLAINTEXT");
+}
+
+#[test]
 fn pem_header_in_docs_does_not_reach_into_a_later_key() {
     let dashes = "-----";
     let doc = format!("A key starts with\n{dashes}BEGIN PRIVATE KEY{dashes}\nlike this one:\n");

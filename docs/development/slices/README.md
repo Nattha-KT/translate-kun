@@ -22,11 +22,13 @@ Each slice is one unit of work for one implementer, reviewed by one reviewer, ap
 | S13 | Trust and transparency: `--dry-run`, privacy doc, audit report, fuzzing, Scorecard | S12 | Sonnet 5.5 / high | merged |
 | S14 | Rate limits, quotas and output limits (exit code 8) | S13 | Sonnet 5.5 / high | merged |
 | S15 | Pre-publish hardening: pinned actions, CODEOWNERS, Project Config ownership check, CodeQL, provider data notice | S14 | Sonnet 5.5 / high | merged |
+| S16 | Test depth and CI quality tools: Windows stdin fix, `proptest`, coverage, `cargo-machete`, `typos`, mutation testing, toolchain pins | S15 | Sonnet 5.5 / high | in review (first slice delivered as a PR) |
 
 At most 2 implementers run at once, and there is 1 reviewer (Codex).
 
 ## Follow-ups
 
+- **Unmaintained transitive crates (from `cargo deny`):** `zvariant`, `zvariant_derive` and `zbus_names` are flagged unmaintained (RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372). They are transitive on Linux only, through `keyring` → `secret-service` → `zbus`, and are not vulnerabilities. Wait for a `keyring` update.
 - **Secret Guard (from the S12 re-check):** an AWS key ID followed directly by `_` (`AKIA…12345_old`) is not detected, because of the trailing boundary. `aws configure set aws_secret_access_key <value>`, which is space-separated with no `=` or `:`, is not detected either. Both are rare; they were accepted.
 - **Security audit nits deferred:** N-2 (document that a repo can pick the Provider and model), N-6 (`KUNPT` placeholder collision only garbles output). N-1 and N-8 were done in S15.
 

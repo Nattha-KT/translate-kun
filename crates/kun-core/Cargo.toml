@@ -40,4 +40,6 @@ live = []
 workspace = true
 
 [dev-dependencies]
+# Property-based tests (tests/properties.rs). Never shipped.
+proptest.workspace = true
 tempfile.workspace = true

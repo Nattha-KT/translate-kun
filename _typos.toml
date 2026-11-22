@@ -1,0 +1,10 @@
+# Spell check config for `typos` (CI job `typos`). Run locally with `typos`.
+# Only list intentional words here: do not use this file to hide real typos.
+
+[default]
+extend-ignore-re = [
+    # A deliberately cut-off model reply in a Provider test ("Hel" + "lo").
+    'translation":"Hel',
+    # Secret Guard fixture: a key prefix glued to a longer word ("B" + "AIza").
+    '"BAIza"',
+]

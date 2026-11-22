@@ -236,12 +236,22 @@ fn json_of(output: &[u8]) -> serde_json::Value {
     serde_json::from_slice(output).expect("stdout must be one JSON object")
 }
 
+/// An empty regular file to use as stdin. On Unix `kun` recognises it as empty
+/// and prints no "ignoring stdin" warning. Off Unix it always does (see
+/// `input.rs`), so tests must not expect an empty `warnings` list there.
+fn empty_stdin(sandbox: &Sandbox) -> std::process::Stdio {
+    let path = sandbox.work_dir().join("empty-stdin.txt");
+    std::fs::write(&path, "").unwrap();
+    std::process::Stdio::from(std::fs::File::open(&path).unwrap())
+}
+
 #[test]
 fn json_output_has_the_documented_shape() {
-    let output = Sandbox::new()
+    let sandbox = Sandbox::new();
+    let output = sandbox
         .std_command()
         .args(["--json", "--provider", "fake", ":th", "hello"])
-        .stdin(std::process::Stdio::null())
+        .stdin(empty_stdin(&sandbox))
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -251,22 +261,36 @@ fn json_output_has_the_documented_shape() {
     assert_eq!(value["source"], "en");
     assert_eq!(value["target"], "th");
     assert_eq!(value["provider"], "fake");
+    assert!(value["warnings"].is_array());
+    // Unix only: off Unix the "ignoring stdin" warning is always present.
+    #[cfg(unix)]
     assert_eq!(value["warnings"], serde_json::json!([]));
     assert_eq!(value.as_object().unwrap().len(), 6);
 }
 
 #[test]
 fn json_warnings_move_from_stderr_into_the_object() {
-    let output = Sandbox::new()
+    let sandbox = Sandbox::new();
+    let output = sandbox
         .std_command()
         .args(["--json", "--provider", "fake", "en:en", "hello"])
-        .stdin(std::process::Stdio::null())
+        .stdin(empty_stdin(&sandbox))
         .output()
         .unwrap();
     assert!(output.status.success());
     let value = json_of(&output.stdout);
     assert_eq!(value["text"], "hello");
-    assert_eq!(value["warnings"].as_array().unwrap().len(), 1);
+    let warnings = value["warnings"].as_array().unwrap();
+    assert!(
+        warnings.iter().any(|w| w
+            .as_str()
+            .unwrap()
+            .contains("already in the Target Language")),
+        "{warnings:?}"
+    );
+    // Unix only: off Unix the "ignoring stdin" warning comes on top.
+    #[cfg(unix)]
+    assert_eq!(warnings.len(), 1);
     assert!(!String::from_utf8_lossy(&output.stderr).contains("warning"));
 }
 
@@ -283,6 +307,9 @@ fn json_errors_still_go_to_stderr_with_the_same_exit_code() {
 
 // --- stdin that carries nothing -----------------------------------------
 
+// Unix only: off Unix stdin is never known to be empty, so the warning shows
+// (std cannot tell a pipe from an empty file on Windows without `unsafe`).
+#[cfg(unix)]
 #[test]
 fn stdin_from_dev_null_does_not_trigger_the_ignored_stdin_warning() {
     use std::process::Stdio;
@@ -296,6 +323,8 @@ fn stdin_from_dev_null_does_not_trigger_the_ignored_stdin_warning() {
     assert!(!String::from_utf8_lossy(&output.stderr).contains("ignoring stdin"));
 }
 
+// Unix only, for the same reason as the `/dev/null` test above.
+#[cfg(unix)]
 #[test]
 fn an_empty_regular_file_on_stdin_does_not_trigger_the_warning() {
     use std::process::Stdio;

@@ -57,6 +57,16 @@ First public version, planned as 0.1.0.
 - Issue forms and a pull request template.
 - CI on Linux and macOS (format, clippy, tests).
 
+### Fixed
+
+- Windows: the test job now gates CI. On Windows the "ignoring stdin" warning (also in the `--json` `warnings`) still appears whenever stdin is redirected, even from an empty file or `NUL`: std cannot tell a pipe from an empty file there without `unsafe`, and guessing wrong would silently drop piped text. On Unix, `/dev/null` and an empty file on stdin still give no warning.
+
+### Added (development)
+
+- Property-based tests (`proptest`) for the Secret Guard and Protected Terms. A dev-dependency only: nothing is added to the shipped binary.
+- CI: a `coverage` report (`cargo-llvm-cov`, report only, not required), `cargo-machete` (unused dependencies) and `typos` (spell check). The Windows test job now gates the workflow, and all `dtolnay/rust-toolchain` pins use the same `master` SHA.
+- A one-off mutation testing run (`cargo-mutants`) on the Secret Guard, with new tests for the mutants that survived. See `CONTRIBUTING.md`.
+
 ### Security
 
 Fixes from the pre-publish security audit:

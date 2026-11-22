@@ -57,7 +57,10 @@ fn stdin_is_known_empty() -> bool {
     }
 }
 
-/// Off Unix, stdin is always treated as possibly holding data.
+/// Off Unix, stdin is always treated as possibly holding data, so the warning
+/// shows whenever stdin is redirected. On Windows std cannot tell a pipe from
+/// an empty file without `unsafe` (a pipe reports `is_file()` and `len() == 0`
+/// there), and guessing wrong would silently drop piped text.
 #[cfg(not(unix))]
 fn stdin_is_known_empty() -> bool {
     false

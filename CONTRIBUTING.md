@@ -19,7 +19,7 @@ cd translate-kun
 
 ## Build, test and lint
 
-These are the checks every change must pass. CI runs the same commands on Linux and macOS.
+These are the checks every change must pass. CI runs the same commands: fmt, clippy and the other checks on Ubuntu, and the tests on Ubuntu, macOS and Windows.
 
 ```sh
 cargo build --workspace
@@ -60,6 +60,37 @@ cargo +nightly fuzz run protected_terms -- -max_total_time=60
 Without `-max_total_time` a target runs until you stop it or it finds a crash. A crash is saved under `fuzz/artifacts/<target>/`: replay it with `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`, then turn it into a normal unit test in `kun-core` and fix the bug.
 
 The seed inputs in `fuzz/corpus/<target>/seed-*` are committed. Anything else the fuzzer writes into `fuzz/corpus/` is ignored by git. The Secret Guard seeds are fake secrets cut by the marker `<SPLIT>` (the target removes it before scanning), so no file in the repository contains a complete secret-looking string. Keep it that way when you add a seed. CI runs each target for 60 seconds every week (`.github/workflows/fuzz.yml`).
+
+## Extra checks
+
+CI also runs these. You do not need them for every change, but each one can be run locally.
+
+| Check | What it does | Install | Run |
+|---|---|---|---|
+| Property tests | `proptest` runs a rule against many random inputs (Secret Guard, Protected Terms). Part of `cargo test`: nothing to install. | none | `cargo test -p translate-kun-core --test properties` |
+| Coverage | `cargo-llvm-cov` prints which lines the tests run. Report only: no threshold, not a required check. | `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov --locked` | `cargo llvm-cov --workspace --features translate-kun/fake-provider --summary-only` |
+| Unused dependencies | `cargo-machete` finds dependencies that no code uses. | `cargo install cargo-machete --locked` | `cargo machete --with-metadata` |
+| Spell check | `typos` finds common misspellings. Intentional words go in `_typos.toml`. | `cargo install typos-cli --locked` | `typos` |
+
+Property tests run 64 cases per property by default. To try more: `PROPTEST_CASES=2000 cargo test -p translate-kun-core --test properties`. If a property fails, proptest prints a small failing input: turn it into a normal test and fix the bug.
+
+## Mutation testing
+
+[cargo-mutants](https://mutants.rs) changes the code in small ways (for example `<` to `<=`, or a function body to a default value) and runs the tests. A mutant that the tests do not notice ("missed") points at behaviour that no test checks. It is not part of CI, because a full run is slow. We ran it on the Secret Guard, the code where a missed bug is a leak:
+
+```sh
+cargo install cargo-mutants --locked
+
+# One file, with a per-mutant time limit (seconds). Only the example tests
+# run (`--test secret_guard`): a failing property test shrinks its input for
+# minutes, which makes a mutation run crawl.
+cargo mutants -p translate-kun-core --file crates/kun-core/src/secret_guard.rs --timeout 30 -- --test secret_guard
+
+# Only list the mutants, without running them:
+cargo mutants -p translate-kun-core --file crates/kun-core/src/secret_guard.rs --list
+```
+
+The results go to `mutants.out/` (do not commit it; or choose another place with `--output <dir>`); `missed.txt` lists the survivors. Add a test that fails for a missed mutant when the mutant changes behaviour that matters. Some mutants in `next_line` turn a loop into an endless one: they count as detected ("timeout"), but on some machines the hung test process is not killed and the run stalls. If that happens, stop the stray `secret_guard-*` process, or leave `next_line` out of the run with `--exclude-re next_line`. Do not chase equivalent mutants (the code behaves the same either way) or cosmetic ones (for example a `Display` text nobody parses).
 
 ## Code guidelines
 
