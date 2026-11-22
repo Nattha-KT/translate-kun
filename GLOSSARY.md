@@ -42,6 +42,10 @@ _Avoid_: glossary, do-not-translate list, keyword
 The check that inspects outgoing text for credentials (API keys, tokens, private keys) before it is sent to a Provider.
 _Avoid_: scanner, filter, sanitizer
 
+**Usage Budget**:
+An opt-in local limit on how many characters `kun` may send to one Provider per calendar month (UTC). Set in the User Config only. When the next call would pass it, `kun` refuses before sending. It is approximate: it counts this machine only.
+_Avoid_: quota (that is the Provider's own limit), cap, allowance, credit
+
 ### Integration
 
 **Adapter**:

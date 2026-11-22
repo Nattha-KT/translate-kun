@@ -8,6 +8,9 @@ kun init [--force]
 kun auth login <google|anthropic>
 kun auth logout <google|anthropic>
 kun auth status
+kun budget [status]
+kun budget set <google|anthropic> <chars>
+kun budget unset <google|anthropic>
 kun completions <bash|zsh|fish|powershell|elvish>
 ```
 
@@ -38,7 +41,7 @@ A bare word is always text, so `kun I love it` never reads `it` as Italian. An a
 
 You cannot give a language both ways. `kun :th -t fr "hi"` is a usage error (exit 2).
 
-If the text itself starts with `auth`, `init` or `completions`, put `--` before it, because those words are subcommands:
+If the text itself starts with `auth`, `budget`, `init` or `completions`, put `--` before it, because those words are subcommands:
 
 ```sh
 kun :th -- auth is great
@@ -201,7 +204,8 @@ The report shows:
 - whether a second call may happen (a Language Pair with a detected Source Language can send the text twice);
 - where the credential would come from (`env`, `keychain`, `config file` or `none`), the way `kun auth status` does. A missing credential is not an error in a dry run, and the key is never shown;
 - the Secret Guard decision (`send`, `redact` or `ask`) and each finding as a kind and a byte range, never the value;
-- the **exact text that would be sent**, after redaction and Protected Terms placeholders, between the begin and end markers. If a real run would make no request (the Source Language is already the Target Language), it says so instead.
+- the **exact text that would be sent**, after redaction and Protected Terms placeholders, between the begin and end markers. If a real run would make no request (the Source Language is already the Target Language), it says so instead;
+- when a [usage budget](#usage-budget) is set for the Provider, a line `budget: <used> of <limit> used this month; this run needs <n>`, and whether a real run would be sent or refused (exit 8). A dry run reads the usage file but never changes it, so it never counts.
 
 The Secret Guard never prompts in a dry run. If a real run would block the text (a secret on a pipe, without `--redact`), the dry run fails the same way, with exit code 6. On a terminal, where a real run would ask, the report says `ask`, says that a real run would ask first, and shows the text as if you answered yes.
 
@@ -239,6 +243,74 @@ Where a key is looked up, first match wins:
 2. the OS keychain;
 3. the `[credentials]` table of the User Config, only if that file is `0600` (see [configuration.md](configuration.md#credentials)).
 
+## Usage budget
+
+A **Usage Budget** is a limit you set on how many characters `kun` may send to one Provider in a calendar month. It exists to keep you inside a free tier, for example Google Cloud Translation's 500,000 characters per month. It is **off by default**: with no limit, `kun` never reads or writes the usage file, and nothing below applies.
+
+Set a limit with a command, or in the User Config:
+
+```sh
+kun budget set google 450000       # stay under Google's 500,000-character free tier
+kun budget set anthropic 50000
+```
+
+```toml
+# ~/.config/kun/config.toml
+[budget]
+google_chars_per_month = 450000
+anthropic_chars_per_month = 50000
+```
+
+How it works:
+
+- **One limit per Provider, per calendar month (UTC).** There is no daily limit. The counter starts again from 0 on the 1st of each month.
+- **What counts.** The characters of the text actually sent to the Provider (the same unit as `max_chars`): after Secret Guard redaction and Protected Terms placeholders. **Every Provider call counts**, so a Language Pair that makes a second call counts twice. A call is counted only **after a successful reply**. A call that fails is not counted, although a Provider may still bill some failures.
+- **Nothing is counted** when the text is not sent: the Source Language equals the Target Language, `--dry-run`, a Secret Guard block, or the size limit.
+- **The check comes first.** If the characters already used this month plus the characters of the next call would pass the limit, `kun` refuses **before any network call** and exits with **8**:
+
+  ```text
+  $ kun :th "hello"
+  error: monthly usage budget for google reached: 449998 of 450000 characters used; this text needs 5. It resets on 2026-12-01 (UTC). Raise it with: kun budget set google <chars>
+  ```
+
+  The message holds numbers only, never your text. Reaching the limit exactly is allowed. With a Language Pair, the second call is checked again before it is sent; if it would pass the limit, `kun` fails, and the first call stays counted.
+- **There is no override.** No flag skips the budget. To continue, raise or remove the limit (`kun budget set ...`, `kun budget unset ...`), or wait for the reset.
+- **User Config only.** A `[budget]` table in a Project Config (`.kun.toml`) is a configuration error (exit 3), so a repository you cloned cannot change or remove your spending guard. See [ADR 0003](adr/0003-project-config-is-untrusted.md).
+
+### The usage file
+
+The counters live in `$XDG_STATE_HOME/kun/usage.json`, or `~/.local/state/kun/usage.json` when `XDG_STATE_HOME` is not set to an absolute path. It holds counters only, for example `{"version":1,"month":"2026-11","google":12345,"anthropic":0}`: no text, no hashes and no timestamps beyond the month. It is written with mode `0600`, atomically (a temporary file, then a rename).
+
+- A missing file means 0 used. A file from another month counts as 0.
+- If a budget is set and the file cannot be read or is not valid, `kun` **fails closed**: exit 3, nothing is sent, and the message tells you to delete the file. Without a budget for the Provider in use, the file is ignored and left untouched.
+- There is no `kun budget reset`: the counter resets by itself each month. To start from 0 sooner, delete the file by hand.
+- Two `kun` processes running at the same moment can lose an increment. `kun` does not lock the file, so the count is approximate.
+
+## `kun budget`
+
+Shows, sets or removes the monthly Usage Budget. `<provider>` is `google` or `anthropic`.
+
+```sh
+kun budget                     # same as `kun budget status`
+kun budget status
+kun budget set google 450000   # write the limit to the User Config
+kun budget unset google        # remove the limit
+```
+
+- `status` shows, for each Provider, the limit (or `no limit`), the characters used this month, what is left, and the reset date (the 1st of the next month, UTC). With `--json` it prints one object: see [json-output.md](json-output.md#kun-budget-status).
+
+  ```text
+  $ kun budget status
+  Usage budget for 2026-11 (resets on 2026-12-01, UTC):
+  google: 448210 of 450000 characters used, 1790 left
+  anthropic: no limit, 0 characters used
+  ```
+
+- `set` writes `google_chars_per_month` or `anthropic_chars_per_month` into the `[budget]` table of the User Config. It creates the file and its directory when they are missing (file mode `0600` on Unix) and keeps the rest of the file, comments included, as it was. `<chars>` is a whole number of at least 1. A symbolic link in place of the file is replaced, not written through. If the file is not valid TOML, `set` stops with exit 3 and does not change it.
+- `unset` removes only that key. It changes nothing when the key is not there.
+
+`budget` is a subcommand like `auth`, `init` and `completions`, so text that starts with it needs `--` first.
+
 ## `kun completions`
 
 Prints a completion script for your shell on stdout. `<shell>` is `bash`, `zsh`, `fish`, `powershell` or `elvish`.
@@ -257,11 +329,12 @@ Install it once, then open a new shell:
 | powershell | add `kun completions powershell \| Out-String \| Invoke-Expression` to your `$PROFILE` |
 | elvish | add `eval (kun completions elvish \| slurp)` to `~/.config/elvish/rc.elv` |
 
-`completions` is a subcommand like `auth` and `init`, so text that starts with it needs `--` first.
+`completions` is a subcommand like `auth`, `budget` and `init`, so text that starts with it needs `--` first.
 
 ## Limits, quotas and costs
 
 - **Free tiers exist, but they change.** Both Providers have a free or low-cost way to start, with limits. Check the current terms on their pricing pages before you rely on them.
+- **Use two guards: a local budget and a Provider-side cap.** Set a local [usage budget](#usage-budget) (`kun budget set google 450000`) **and** a quota cap or budget alert in the Provider's console (the links below). The local budget is a convenience, not a guarantee: it counts only what this machine sends through `kun` (other machines, scripts and other tools using the same key are not counted), and it is approximate. Google counts characters its own way, and Anthropic bills **tokens**, not characters, so a character budget for Anthropic is only a rough guide. Only the Provider-side cap is enforced by the Provider.
 - **`max_chars` bounds the cost of one call.** The default is 10,000 characters per input. Lower it (`--max-chars`, or `max_chars` in a config file) if you want a smaller ceiling. Text longer than the limit is refused before anything is sent (exit 7).
 - **A reply that is too long fails clearly.** A very long translation (Thai uses many tokens per character) can hit the Anthropic output limit of 16,000 tokens. `kun` then exits with 5 and tells you to split the text or lower `max_chars`. It never returns a half-finished translation.
 - **There are no automatic retries, by design.** A retry could cost money twice and send your text twice. When a Provider rate limits you or a quota runs out, `kun` exits with **8**, and the message says how long to wait if the Provider said so. A script can retry on 8:
@@ -286,12 +359,12 @@ Where to check your account and limits:
 | 0 | Success |
 | 1 | Unexpected error (including a keychain read or write failure) |
 | 2 | Usage error: bad arguments, no text, no Target Language, `kun init` over an existing file |
-| 3 | Configuration error (including a credential in a Project Config, or a `providers.<name>.endpoint` for the Provider in use), or no OS keychain for `kun auth login` |
+| 3 | Configuration error (including a credential or a `[budget]` in a Project Config, or a `providers.<name>.endpoint` for the Provider in use), no OS keychain for `kun auth login`, or a usage file that cannot be read while a budget is set |
 | 4 | Missing credentials |
 | 5 | Network or Provider error (timeout, rejected key, unsupported language, refusal, or a translation too long for one request) |
 | 6 | Blocked by the Secret Guard, or you declined its prompt |
 | 7 | Input longer than the limit |
-| 8 | Rate limited, or the Provider's quota, credit or billing limit was reached. Waiting and retrying, or checking your Provider account, may help. When the Provider sends a `Retry-After` header, the message says how many seconds to wait |
+| 8 | Rate limited, or the Provider's quota, credit or billing limit was reached, **or your local [usage budget](#usage-budget) was reached** (nothing was sent; raise the limit or wait for the reset). Waiting and retrying, or checking your Provider account, may help. When the Provider sends a `Retry-After` header, the message says how many seconds to wait |
 
 ## Environment variables
 
@@ -300,5 +373,6 @@ Where to check your account and limits:
 | `KUN_GOOGLE_API_KEY` | Google API key. |
 | `ANTHROPIC_API_KEY` | Anthropic API key. |
 | `XDG_CONFIG_HOME` | Where the User Config directory lives (`$XDG_CONFIG_HOME/kun/config.toml`). Must be an absolute path. |
-| `HOME` | Fallback for the User Config (`~/.config/kun/config.toml`). |
+| `XDG_STATE_HOME` | Where the usage file lives (`$XDG_STATE_HOME/kun/usage.json`). Must be an absolute path. |
+| `HOME` | Fallback for the User Config (`~/.config/kun/config.toml`) and the usage file (`~/.local/state/kun/usage.json`). |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | Proxy settings for Provider requests (lower-case names work too). |
