@@ -154,7 +154,7 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: "Install cargo-about (prebuilt)"
-        uses: "taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c"
+        uses: "taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c"
         if: "${{ !(runner.os == 'macOS' && runner.arch == 'X64') }}"
         with:
           "tool": "cargo-about@0.9.3"
@@ -178,7 +178,7 @@ jobs:
       # installs the *latest* cargo-auditable. A pinned version is used instead.
       # (taiki-e/install-action has a prebuilt cargo-auditable for all 5 runners.)
       - name: Install cargo-auditable
-        uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c
         with:
           tool: cargo-auditable@0.7.7
       - name: Install dependencies
